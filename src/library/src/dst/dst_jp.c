@@ -1,0 +1,47 @@
+/***************************************************************************
+ * This code and information is provided "as is" without warranty of any
+ * kind, either expressed or implied, including but not limited to the
+ * implied warranties of merchantability and/or fitness for a particular
+ * purpose.
+ *
+ * Copyright (C) 2013 Silergy Corp. All Rights Reserved.
+ *
+ * DESCRIPTION: This code implements the daylight savings time and
+ * time zone strings of the political region of Japan.
+ *
+ * $Id: dst_jp.c 16026 2017-11-23 02:49:23Z rvandewa $
+ ***************************************************************************/
+#include "options.h"
+#include "rtc.h"
+#include "dst.h"
+
+/*** Version ****/
+const char fw_ver_dst[] =
+"dst_jp" /* Library file name */
+" v"     /* ver string */
+"1.00"   /* Major_ver.Minor_ver */
+"\r\n"   /* CR + LF */
+;
+
+// Japan calculation for daylight savings time.
+int dst(struct tm *tm_ptr)
+{
+    return 0; // No DST
+}
+
+// Japan time zones.
+const char *dst_tz(struct tm *tm_ptr)
+{
+    // JST = UTC + 9 = +560 minutes
+    if(560 == tm_ptr->gmt_offset)
+        return "JST";
+    else
+        return "";
+}
+
+/***************************************************************************
+ * Copyright (C) 2013 Silergy Corp. All Rights Reserved.
+ * this program is fully protected by the United States copyright
+ * laws and is the property of Silergy Corp.
+ ***************************************************************************/
+
