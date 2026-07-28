@@ -1,5 +1,0 @@
--c --cpu Cortex-M0 -D__MICROLIB --li -g -O0 --apcs=interwork -I ..\Silergy_BSP\cm0\include -I ..\Silergy_BSP\drivers\include -I ..\Silergy_BSP\library\include -I ..\Silergy_BSP\SY7T108\drivers\include -I ..\Meter_App\include -I ..\Meter_App\dlms_common -I ..\Meter_App\dlms
--IC:\Keil_v5\ARM\Packs\ARM\Cortex_DFP\1.1.0\Device\ARMCM0\Include
--IC:\Keil_v5\ARM\Packs\ARM\Cortex_DFP\1.1.0\Device\ARM\ARMCM0\Include
--D__UVISION_VERSION="543" -DARMCM0 -DSY7T108_1P2W_SHUNT_CT="1" -DDLMS_STACK="1" -DASDAQ="1"
--o .\objects\systick.o --omf_browse .\objects\systick.crf --depend .\objects\systick.d "..\Silergy_BSP\drivers\src\systick\systick.c"

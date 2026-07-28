@@ -1,3 +1,31 @@
+# ==========================================
+# Keil µVision Build Artifacts & Output
+# ==========================================
+ARM_keil/Objects/
+ARM_keil/Listings/
+
+# Keil temporary and user-specific GUI files
+*.uvguix.*
+*.uvoptx
+*.bak
+*.dep
+*.crf
+*.d
+*.o
+*.lnp
+*.axf
+*.map
+*.htm
+*.sct
+*.lst
+*.hex
+
+# ==========================================
+# Application Backup Files
+# ==========================================
+*_bkp.c
+*_bkp.h
+
 # Prerequisites
 *.d
 
