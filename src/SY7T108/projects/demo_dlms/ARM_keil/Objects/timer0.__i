@@ -1,5 +1,0 @@
--c --cpu Cortex-M0 -D__MICROLIB --li -g -O0 --apcs=interwork -I ../include -I ../../../drivers/include -I ../../../../cm0/include -I ../../../../drivers/include -I ../../../../library/include -I ../src/dlms_common -I ../src/dlms
--IC:\Keil_v5\ARM\Packs\ARM\Cortex_DFP\1.1.0\Device\ARMCM0\Include
--IC:\Keil_v5\ARM\Packs\ARM\Cortex_DFP\1.1.0\Device\ARM\ARMCM0\Include
--D__UVISION_VERSION="543" -DARMCM0 -DSY7T108_1P2W_SHUNT_CT="1" -DDLMS_STACK="1" -DASDAQ="1"
--o .\objects\timer0.o --omf_browse .\objects\timer0.crf --depend .\objects\timer0.d "..\..\..\..\drivers\src\timer\timer0.c"

@@ -1,0 +1,5 @@
+--cpu Cortex-M0 --li -g --apcs=interwork --pd "__MICROLIB SETA 1"
+-IC:\Keil_v5\ARM\Packs\ARM\Cortex_DFP\1.1.0\Device\ARMCM0\Include
+-IC:\Keil_v5\ARM\Packs\ARM\Cortex_DFP\1.1.0\Device\ARM\ARMCM0\Include
+--pd "__UVISION_VERSION SETA 543" --pd "ARMCM0 SETA 1"
+--list .\listings\startup_sy7t108_keil.lst --xref -o .\objects\startup_sy7t108_keil.o --depend .\objects\startup_sy7t108_keil.d "..\Silergy_BSP\SY7T108\drivers\src\sys\startup_SY7T108_keil.s"

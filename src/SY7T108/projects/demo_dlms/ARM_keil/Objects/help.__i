@@ -1,6 +1,0 @@
--c --cpu Cortex-M0 -D__MICROLIB --li -g -O0 --apcs=interwork -I ../include -I ../../../drivers/include -I ../../../../cm0/include -I ../../../../drivers/include -I ../../../../library/include -I ../src/dlms_common -I ../src/dlms
--I.\RTE\_Target_1
--IC:\Keil_v5\ARM\PACK\ARM\CMSIS\5.3.0\Device\ARM\ARMCM0\Include
--IC:\Keil_v5\ARM\CMSIS\Include
--D__UVISION_VERSION="525" -DARMCM0 -DSY7T108_1P2W_SHUNT_CT="1" -DDLMS_STACK="1" -DASDAQ="1"
--o .\objects\help.o --omf_browse .\objects\help.crf --depend .\objects\help.d "..\src\cli\help.c"
