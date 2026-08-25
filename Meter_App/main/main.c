@@ -989,7 +989,8 @@ void serial_comm(void)
 	unsigned int i, tmp_int;
 	unsigned long int tmp_long;
 
-	/* 1. If buffer is empty or packet is a DLMS frame (0x7E), exit immediately */
+	/* 1. If buffer is empty or packet is a DLMS frame (0x7E), exit immediately
+	 * (unchanged from your DLMS-era version - lets the two protocols share UART2) */
 	if (recv_ctr < 2 || recv_buf[0] == 0x7E)
 	{
 		return;
@@ -1011,132 +1012,247 @@ void serial_comm(void)
 		}
 		delay(5000);
 		delay(5000);
+		if (recv_ctr >= 11)
+			break;
 	}
 
 	enable_recv_buf = 0;
 
-	/* 3. Validate ASDAQ Checksum */
-	comm_checksum = recv_buf[0];
-	for (i = 1; i < (recv_ctr - 1); i++)
+	if ((recv_ctr >= 2) && ((recv_buf[0] != 0x7E) && (recv_buf[recv_ctr - 1] != 0x7E)))
 	{
-		comm_checksum = comm_checksum + recv_buf[i];
-	}
-	comm_checksum = comm_checksum & 0xff;
+		/* 3. Validate ASDAQ Checksum */
+		comm_checksum = recv_buf[0];
+		for (i = 1; i < (recv_ctr - 1); i++)
+			comm_checksum = comm_checksum + recv_buf[i];
+		comm_checksum = comm_checksum & 0xff;
 
-	if (recv_buf[recv_ctr - 1] == comm_checksum)
-	{
-		cmd = recv_buf[0];
-		transmit_char2(cmd + 48);
-
-		/* --- RESTORED COMMAND FILTER TO ALLOW RTC & CAL COMMANDS --- */
-		if ((cmd == TIME_CMD) || (cmd == DATE_CMD) || (cmd == TOD_CMD) ||
-			(cmd == NUM_ZONE_CMD) || (cmd == INTGRTIME_CMD) || (cmd == DLOAD_CMD) ||
-			(cmd == BILL_DAY_CMD) || (cmd == MDRESET_CMD) || (cmd == DLOAD_COMPLETE_CMD) ||
-			(cmd == CUOPEN_CMD) || (meter_no == 0) || (meter_no == 0xFFFFFF) ||
-			(cmd == MTR_NO_CMD) || (cmd == UNLOCK_CMD) || (cmd == RTC_CALIB_CMD) || (cmd == VI_CAL_CMD) || (cmd == CAL_CMD))
+		if (recv_buf[recv_ctr - 1] == comm_checksum)
 		{
-			switch (cmd)
+			cmd = recv_buf[0];
+			transmit_char2(cmd + 48);
+
+			/* --- ORIGINAL gate: unlocked meter, or MTR_NO/UNLOCK commands --- */
+			if ((meter_no == 0) || (meter_no == 0xFFFFFF) || (cmd == MTR_NO_CMD) || (cmd == UNLOCK_CMD))
 			{
-			case TIME_CMD:
-			case DATE_CMD:
-			case VI_CAL_CMD:
-			case MTR_NO_CMD:
-			case CAL_CMD:
-			case TOD_CMD:
-			case NUM_ZONE_CMD:
-			case INTGRTIME_CMD:
-			case DLOAD_CMD:
-			case BILL_DAY_CMD:
-			case RTC_CALIB_CMD:
-				if ((cmd == TIME_CMD) || (cmd == DATE_CMD))
+				switch (cmd)
 				{
-					disp_all_lcd(0x00);
-					LCD->DIO[7] = get_digit('C'); // C
-					LCD->DIO[6] = get_digit('L'); // L
-					LCD->DIO[5] = get_digit('o'); // o
-					LCD->DIO[4] = get_digit('c'); // c
-
-					d_day = convt_bcd_to_byte(recv_buf[1]);
-					d_mnth = convt_bcd_to_byte(recv_buf[2]);
-					d_yr = convt_bcd_to_byte(recv_buf[3]);
-					t_hr = convt_bcd_to_byte(recv_buf[4]);
-					t_min = convt_bcd_to_byte(recv_buf[5]);
-					t_sec = convt_bcd_to_byte(recv_buf[6]);
-
-					s_time.tm_subsec = 0;
-					s_time.tm_mday = d_day;
-					if (d_mnth > 0)
-						s_time.tm_mon = d_mnth - 1;
-					else
-						s_time.tm_mon = 0;
-					s_time.tm_year = d_yr;
-					s_time.tm_wday = SUN;
-					s_time.tm_hour = t_hr;
-					s_time.tm_min = t_min;
-					s_time.tm_sec = t_sec;
-					s_time.tm_subsec = 0;
-
-					rtc_write(&s_time);
-				}
-				else
-				{
-					tmp_long = 0;
-					for (i = 0; i < 8; i++)
-						tmp_long = (tmp_long * 10) + recv_buf[i + 1];
-
-					if (cmd == MTR_NO_CMD)
+				case TIME_CMD:
+				case DATE_CMD:
+				case VI_CAL_CMD:
+				case MTR_NO_CMD:
+				case CAL_CMD:
+				case TOD_CMD:
+				case NUM_ZONE_CMD:
+				case INTGRTIME_CMD:
+				case DLOAD_CMD:
+				case BILL_DAY_CMD:
+				case RTC_CALIB_CMD:
+					if ((cmd == TIME_CMD) || (cmd == DATE_CMD))
 					{
 						disp_all_lcd(0x00);
-						LCD->DIO[7] = get_digit('S');
+						LCD->DIO[7] = get_digit('C');
 						LCD->DIO[6] = get_digit('L');
-						LCD->DIO[5] = get_digit('n');
-						LCD->DIO[4] = get_digit('o');
-						CalDisplayVar = SLNO;
-						CalDisplay();
-						meter_no = tmp_long;
-						to_eeprom(MTRNO_LOC, meter_no, 3);
-						manfact_date = d_mnth;
-						manfact_date = (manfact_date * 100) + d_yr;
-						to_eeprom(MANUFACT_DATE_LOC, manfact_date, 2);
-						dlms_manufacture_year = 2000 + (manfact_date % 100);
+						LCD->DIO[5] = get_digit('o');
+						LCD->DIO[4] = get_digit('c');
+
+						d_day = convt_bcd_to_byte(recv_buf[1]);
+						d_mnth = convt_bcd_to_byte(recv_buf[2]);
+						d_yr = convt_bcd_to_byte(recv_buf[3]);
+						t_hr = convt_bcd_to_byte(recv_buf[4]);
+						t_min = convt_bcd_to_byte(recv_buf[5]);
+						t_sec = convt_bcd_to_byte(recv_buf[6]);
+
+						s_time.tm_subsec = 0;
+						s_time.tm_mday = d_day;
+						if (d_mnth > 0)
+							s_time.tm_mon = d_mnth - 1;
+						else
+							s_time.tm_mon = 0;
+						s_time.tm_year = d_yr;
+						s_time.tm_wday = SUN;
+						s_time.tm_hour = t_hr;
+						s_time.tm_min = t_min;
+						s_time.tm_sec = t_sec;
+						s_time.tm_subsec = 0;
+
+						rtc_write(&s_time);
 					}
+					else
+					{
+						tmp_long = 0;
+						for (i = 0; i < 8; i++)
+							tmp_long = (tmp_long * 10) + recv_buf[i + 1];
+
+						if (cmd == MTR_NO_CMD)
+						{
+							CalDisplayVar = SLNO;
+							CalDisplay();
+							meter_no = tmp_long;
+							to_eeprom(MTRNO_LOC, meter_no, 3);
+							manfact_date = d_mnth;
+							manfact_date = (manfact_date * 100) + d_yr;
+							to_eeprom(MANUFACT_DATE_LOC, manfact_date, 2);
+							dlms_manufacture_year = 2000 + (manfact_date % 100);
+						}
+						else if (cmd == CAL_CMD)
+						{
+							CalDisplayVar = CAL;
+							CalDisplay();
+
+							if (inst_pf < 80)
+							{
+								if (channel == 0)
+								{
+									ce_data.cal_v0 = 16384;
+									ce_data.cal_i0 = 16384;
+									ce_data.phadj_0 = 0;
+
+									delay1ms(250);
+									delay1ms(250);
+									delay1ms(250);
+									delay1ms(250);
+									delay1ms(250);
+									delay1ms(250);
+									delay1ms(250);
+									delay1ms(250);
+									delay1ms(250);
+									delay1ms(250);
+									delay1ms(250);
+									delay1ms(250);
+
+									meter_sum_data();
+									ReadShuntKVA();
+									CalibrateShunt();
+								}
+								else
+								{
+									ce_data.cal_i1 = 16384;
+									ce_data.phadj_1 = 0;
+
+									delay1ms(250);
+									delay1ms(250);
+									delay1ms(250);
+									delay1ms(250);
+									delay1ms(250);
+									delay1ms(250);
+									delay1ms(250);
+									delay1ms(250);
+									delay1ms(250);
+									delay1ms(250);
+									delay1ms(250);
+									delay1ms(250);
+
+									meter_sum_data();
+									ReadctKVA();
+									CalibrateCT();
+								}
+							}
+
+							to_eeprom(VOLT_FACT_LOC, ce_data.cal_v0, 2);
+							to_eeprom(AMP_FACT_LOC, ce_data.cal_i0, 2);
+							to_eeprom(IPH_LOC, ce_data.phadj_0, 2);
+							to_eeprom(AMP_FACT_LOC + 2, ce_data.cal_i1, 2);
+							to_eeprom(IPH_LOC + 2, ce_data.phadj_1, 2);
+						}
+						/* RTC_CALIB_CMD body stays disabled - it called Renesas-specific
+						 * R_RTC_Compensate()/RADJ, which no longer applies to your new
+						 * RTC driver. Leave commented until/unless you reimplement it. */
+					}
+					break;
+
+				case MDRESET_CMD:
+					CalDisplayVar = RESET;
+					CalDisplay();
+					break;
+
+				case CUOPEN_CMD:
+					CalDisplayVar = CLRC;
+					CalDisplay();
+					for (i = 0; i < 7; i++)
+						to_eeprom(CUOPEN_LOC + i, 0, 1);
+					cuopen_stat = 0;
+					break;
+
+				case UNLOCK_CMD:
+					if ((recv_buf[1] == 'a') && (recv_buf[2] == 'a') && (recv_buf[3] == 'm') &&
+						(recv_buf[4] == 't') && (recv_buf[5] == 'p') && (recv_buf[6] == 'l') &&
+						(recv_buf[7] == 'a') && (recv_buf[8] == 'a'))
+					{
+						pass_step = 1;
+						pass_ctr = 0;
+					}
+					if ((recv_buf[1] == 'b') && (recv_buf[2] == 'b') && (recv_buf[3] == 'n') &&
+						(recv_buf[4] == 'u') && (recv_buf[5] == 'q') && (recv_buf[6] == 'm') &&
+						(recv_buf[7] == 'b') && (recv_buf[8] == 'b') && (pass_step == 1) && (pass_ctr < 5))
+					{
+						pass_step = 0;
+						pass_ctr = 0;
+						CalDisplayVar = UNLOCK;
+						CalDisplay();
+						meter_no = 0;
+						to_eeprom(MTRNO_LOC, meter_no, 3);
+					}
+					break;
+
+				case IR_INST_CMD:
+					/* old_style_send_inst_param(); -- still not present anywhere in your
+					 * uploaded files; leave disabled unless you reimplement it */
+					break;
+
+				case CLR1_CMD:
+					CalDisplayVar = CLR1;
+					CalDisplay();
+					default_eeprom(1);
+					{
+						SYS->MOD_CNTL |= BIT31;
+						while (1)
+							;
+					}
+					break;
+
+				case CLR2_CMD:
+				{
+					disp_all_lcd(0x00);
+					CalDisplayVar = CLR2;
+					CalDisplay();
+					default_eeprom(2);
+					SYS->MOD_CNTL |= BIT31;
+					while (1)
+						;
 				}
 				break;
 
-			case MDRESET_CMD:
-				disp_all_lcd(0x00);
-				LCD->DIO[7] = get_digit('r');
-				LCD->DIO[6] = get_digit('E');
-				LCD->DIO[5] = get_digit('S');
-				LCD->DIO[4] = get_digit('E');
-				LCD->DIO[3] = get_digit('t');
-				CalDisplayVar = RESET;
-				CalDisplay();
-				break;
+				case CLR_TAMPER_CMD:
+					disp_all_lcd(0x00);
+					CalDisplayVar = CLR3;
+					CalDisplay();
+					DefaultCalConstants();
+					break;
 
-			case CUOPEN_CMD:
-				LCD->DIO[7] = get_digit('C');
-				LCD->DIO[6] = get_digit('L');
-				LCD->DIO[5] = get_digit('r');
-				LCD->DIO[4] = get_digit('c');
-				CalDisplayVar = CLRC;
-				CalDisplay();
-				for (i = 0; i < 7; i++)
-					to_eeprom(CUOPEN_LOC + i, 0, 1);
-				cuopen_stat = 0;
-				break;
+				case INVOKE_BL_CMD:
+					invole_BL();
+					break;
 
-			case UNLOCK_CMD:
-				LCD->DIO[7] = get_digit('U');
-				LCD->DIO[6] = get_digit('n');
-				LCD->DIO[5] = get_digit('L');
-				LCD->DIO[4] = get_digit('o');
-				LCD->DIO[3] = get_digit('c');
-				CalDisplayVar = UNLOCK;
-				CalDisplay();
-				meter_no = 0;
-				to_eeprom(MTRNO_LOC, meter_no, 3);
-				break;
+				case CAL_Default_Constants:
+					DefaultCalConstants();
+					break;
+
+				case CAL_Shunt_Read_UPF_Power:
+					ReadShuntKW();
+					break;
+
+				case CAL_Shunt_Read_Lag_Power:
+					CalibrateShunt();
+					break;
+
+				case CAL_CT_Read_UPF_Power:
+					ReadctKW();
+					break;
+
+				case CAL_CT_Read_Lag_Power:
+					CalibrateCT();
+					break;
+				}
 			}
 		}
 	}
