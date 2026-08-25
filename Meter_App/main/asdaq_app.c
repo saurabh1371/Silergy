@@ -1370,21 +1370,6 @@ void get_time_data(unsigned long int date_val, unsigned long int time_val)
   tmp_time_string[10] = 0x00;                  // DEV(L)
   tmp_time_string[11] = 0;                     // STAT
 
-  if (date_val == 0)
-  {
-    tmp_time_string[0] = 0xff;
-    tmp_time_string[1] = 0xff;
-    tmp_time_string[2] = 0xff;
-    tmp_time_string[3] = 0xff;
-  }
-
-  // if(time_val==0)
-  //{
-  //   tmp_time_string[5]=0xff;
-  //   tmp_time_string[6]=0xff;
-  //   tmp_time_string[7]=0xff;
-  // }
-
   return;
 }
 
