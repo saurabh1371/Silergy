@@ -340,7 +340,7 @@
               <MiscControls></MiscControls>
               <Define>SY7T108_1P2W_SHUNT_CT=1  DLMS_STACK=1 ASDAQ=1</Define>
               <Undefine></Undefine>
-              <IncludePath>..\Silergy_BSP\cm0\include;..\Silergy_BSP\drivers\include;..\Silergy_BSP\library\include;..\Silergy_BSP\SY7T108\drivers\include;..\Meter_App\include;..\Meter_App\dlms_common;..\Meter_App\dlms</IncludePath>
+              <IncludePath>..\Silergy_BSP\cm0\include;..\Silergy_BSP\drivers\include;..\Silergy_BSP\library\include;..\Silergy_BSP\SY7T108\drivers\include;..\Meter_App\include;..\Meter_App\dlms_common;..\Meter_App\dlms;..\Meter_App\DLMS</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -400,19 +400,19 @@
               <FilePath>..\Meter_App\LCD\Lcd_Approved_LCD_For_Rajasthan.c</FilePath>
             </File>
             <File>
+              <FileName>cli_stub.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Meter_App\cli\cli_stub.c</FilePath>
+            </File>
+            <File>
               <FileName>asdaq_app.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Meter_App\dlms\asdaq_app.c</FilePath>
+              <FilePath>..\Meter_App\main\asdaq_app.c</FilePath>
             </File>
             <File>
               <FileName>asdaq_variables.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Meter_App\dlms\asdaq_variables.c</FilePath>
-            </File>
-            <File>
-              <FileName>cli_stub.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Meter_App\cli\cli_stub.c</FilePath>
+              <FilePath>..\Meter_App\main\asdaq_variables.c</FilePath>
             </File>
           </Files>
         </Group>
@@ -690,79 +690,29 @@
           <GroupName>DLMS</GroupName>
           <Files>
             <File>
-              <FileName>dlmsif.c</FileName>
+              <FileName>aes.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Meter_App\dlms\dlmsif.c</FilePath>
+              <FilePath>..\Meter_App\DLMS\aes.c</FilePath>
             </File>
             <File>
-              <FileName>dlmsif_timer.c</FileName>
+              <FileName>dlms_cosem.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Meter_App\dlms\dlmsif_timer.c</FilePath>
+              <FilePath>..\Meter_App\DLMS\dlms_cosem.c</FilePath>
             </File>
             <File>
-              <FileName>dlms_objects.c</FileName>
+              <FileName>dlms_hdlc.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Meter_App\dlms\dlms_objects.c</FilePath>
+              <FilePath>..\Meter_App\DLMS\dlms_hdlc.c</FilePath>
             </File>
             <File>
-              <FileName>dlms_variables.c</FileName>
+              <FileName>meter_dlms_objects.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Meter_App\dlms\dlms_variables.c</FilePath>
+              <FilePath>..\Meter_App\DLMS\meter_dlms_objects.c</FilePath>
             </File>
             <File>
-              <FileName>dlms_silergy_stubs.c</FileName>
+              <FileName>meter_dlms_profiles.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Meter_App\dlms\dlms_silergy_stubs.c</FilePath>
-            </File>
-            <File>
-              <FileName>dlms_utils.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Meter_App\dlms\dlms_utils.c</FilePath>
-            </File>
-            <File>
-              <FileName>dlmsif_dayprofile.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Meter_App\dlms\dlmsif_dayprofile.c</FilePath>
-            </File>
-            <File>
-              <FileName>dlmsif_instparams.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Meter_App\dlms\dlmsif_instparams.c</FilePath>
-            </File>
-            <File>
-              <FileName>dlmsif_loadsurvey.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Meter_App\dlms\dlmsif_loadsurvey.c</FilePath>
-            </File>
-            <File>
-              <FileName>dlmsif_misc_params.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Meter_App\dlms\dlmsif_misc_params.c</FilePath>
-            </File>
-            <File>
-              <FileName>dlmsif_tampers.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Meter_App\dlms\dlmsif_tampers.c</FilePath>
-            </File>
-            <File>
-              <FileName>dlmsif_tou.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Meter_App\dlms\dlmsif_tou.c</FilePath>
-            </File>
-            <File>
-              <FileName>dlms_app.lib</FileName>
-              <FileType>4</FileType>
-              <FilePath>..\Meter_App\dlms\dlms_app.lib</FilePath>
-            </File>
-            <File>
-              <FileName>dlms_hdlc.lib</FileName>
-              <FileType>4</FileType>
-              <FilePath>..\Meter_App\dlms\dlms_hdlc.lib</FilePath>
-            </File>
-            <File>
-              <FileName>dlms_obj.lib</FileName>
-              <FileType>4</FileType>
-              <FilePath>..\Meter_App\dlms\dlms_obj.lib</FilePath>
+              <FilePath>..\Meter_App\DLMS\meter_dlms_profiles.c</FilePath>
             </File>
           </Files>
         </Group>

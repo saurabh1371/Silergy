@@ -1,64 +1,65 @@
 #include <stdbool.h>
 #include "Defines.h"
-#include "time.h"       // Clock and calendar.
+#include "time.h" // Clock and calendar.
 
-//For ASDAQ calibration protocol implementation
-// DISPLAY DATA SCREEN NAMES
-#define INST_CMD        0
-#define IR_INST_CMD     80
-#define TIME_CMD        1
-#define DATE_CMD        2
-#define MTR_NO_CMD      3
-#define CLR1_CMD        4
-#define CLR2_CMD        85
-#define DLOAD_CMD       5
-#define CLR_TAMPER_CMD  185
-#define TOD_CMD         8
-#define CLR_TOD_CMD     9
-#define CTRATIO_CMD     10
-#define CAL_CMD         11
-#define OFFSET_CMD      12
-#define VI_CAL_CMD      13
-#define CUOPEN_CMD      14
-#define PHCAL_CMD       15
-#define NCUT_CAL_CMD    16
-#define RENERGY_CMD     17
-#define RESET_CMD       18
-#define INTGRTIME_CMD   19
-#define LOCK_CMD        20
+// For ASDAQ calibration protocol implementation
+//  DISPLAY DATA SCREEN NAMES
+#define INST_CMD 0
+#define IR_INST_CMD 80
+#define TIME_CMD 1
+#define DATE_CMD 2
+#define MTR_NO_CMD 3
+#define CLR1_CMD 4
+#define CLR2_CMD 85
+#define DLOAD_CMD 5
+#define CLR_TAMPER_CMD 185
+#define DLOAD_COMPLETE_CMD 105
+#define TOD_CMD 8
+#define CLR_TOD_CMD 9
+#define CTRATIO_CMD 10
+#define CAL_CMD 11
+#define OFFSET_CMD 12
+#define VI_CAL_CMD 13
+#define CUOPEN_CMD 14
+#define PHCAL_CMD 15
+#define NCUT_CAL_CMD 16
+#define RENERGY_CMD 17
+#define RESET_CMD 18
+#define INTGRTIME_CMD 19
+#define LOCK_CMD 20
 
-#define COMM_CMD				51
-#define MAG_PULSE_CMD   52
-#define CBYP_CMD        53
-#define MDRESET_CMD     54
-#define NUM_ZONE_CMD    55
-#define BILL_DAY_CMD		56
-#define VERSION_CMD			70
+#define COMM_CMD 51
+#define MAG_PULSE_CMD 52
+#define CBYP_CMD 53
+#define MDRESET_CMD 54
+#define NUM_ZONE_CMD 55
+#define BILL_DAY_CMD 56
+#define VERSION_CMD 70
 
-#define RTC_CALIB_CMD		60
-#define UNLOCK_CMD			170
+#define RTC_CALIB_CMD 60
+#define UNLOCK_CMD 170
 
-#define I_MTR_NO  0
-#define I_TIME    10
-#define I_DATE    20
-#define I_VRMSR   30
-#define I_VRMSY   31
-#define I_VRMSB   32
-#define I_VRMS    33
-#define I_IRMSR   40
-#define I_IRMSY   41
-#define I_IRMSB   42
-#define I_IRMS    43
-#define I_IRMSN   44
-#define I_PFR     50
-#define I_PFY     51
-#define I_PFB     52
-#define I_PF      53
-#define I_KWH     60
-#define I_KVAH    70
-#define I_RKVAH   80
-#define I_KWMD    90
-#define I_KVAMD   100
+#define I_MTR_NO 0
+#define I_TIME 10
+#define I_DATE 20
+#define I_VRMSR 30
+#define I_VRMSY 31
+#define I_VRMSB 32
+#define I_VRMS 33
+#define I_IRMSR 40
+#define I_IRMSY 41
+#define I_IRMSB 42
+#define I_IRMS 43
+#define I_IRMSN 44
+#define I_PFR 50
+#define I_PFY 51
+#define I_PFB 52
+#define I_PF 53
+#define I_KWH 60
+#define I_KVAH 70
+#define I_RKVAH 80
+#define I_KWMD 90
+#define I_KVAMD 100
 
 #define I_CNT1 901
 #define I_CNT2 902
@@ -82,19 +83,19 @@
 #define I_CNT20 920
 #define I_CNT21 921
 
-//ADC
-#define MCF1DEN	10000
+// ADC
+#define MCF1DEN 10000
 #define NCF1DEN 1200
 
-#define VOLT_CONST	16600	//2800
-#define AMPP_CONST	790
-#define AMPN_CONST	797
+#define VOLT_CONST 16600 // 2800
+#define AMPP_CONST 790
+#define AMPN_CONST 797
 
-#define IAPH_CONST  	0
-#define IBPH_CONST  	786
-#define IAGAIN_CONST	18780
-#define IBGAIN_CONST 	19950
-#define VGAIN_CONST		16600
+#define IAPH_CONST 0
+#define IBPH_CONST 786
+#define IAGAIN_CONST 18780
+#define IBGAIN_CONST 19950
+#define VGAIN_CONST 16600
 
 /*
 extern unsigned char recv_buf[25],recv_ctr,recv_ovf;
@@ -119,36 +120,35 @@ extern int ph_val, iaph_val, ibph_val;
 //extern unsigned long int real_time, real_date;//,prev_real_date;
 */
 
-//extern unsigned int vrms_reg3, vrms_reg3_actual, irms_reg3, irms1_reg3, irms2_reg3, kw_reg3, kva_reg3, kvar_reg3,  pf_reg3, temp_reg3, freq_reg3;
+// extern unsigned int vrms_reg3, vrms_reg3_actual, irms_reg3, irms1_reg3, irms2_reg3, kw_reg3, kva_reg3, kvar_reg3,  pf_reg3, temp_reg3, freq_reg3;
 extern unsigned char channel;
-//extern int pf_reg4, kw_reg4;
+// extern int pf_reg4, kw_reg4;
 
 extern unsigned long int load_val[2], disp_load_val[2], last_load_val[2], last_stored_tod_load_val[2], last_day_load_val[2], last_hr_load_val[2];
 extern unsigned long int last_demand_load_val[2];
 extern unsigned int load_ctr[2], load_index[2], inst_load[2], load_rmndr[2];
 
-extern unsigned long int kwh_bkp, kvah_bkp, reset_on_time,bkp_kwh_val,bkp_kvah_val;
+extern unsigned long int kwh_bkp, kvah_bkp, reset_on_time, bkp_kwh_val, bkp_kvah_val;
 extern unsigned int kwmd_val, kwmd_bkp, kvamd_val, kvamd_bkp, ontime_bkp, tamper_cnt_bkp;
-extern unsigned long int kwmd_date,kvamd_date;
-extern unsigned long int kwmd_time,kvamd_time;
-extern unsigned int bkp_kwmd_val; 
-extern unsigned int bkp_kvamd_val; 
-extern unsigned int bkp_kwmd_date, bkp_kwmd_time; 
-extern unsigned int bkp_kvamd_date, bkp_kvamd_time; 
+extern unsigned long int kwmd_date, kvamd_date;
+extern unsigned long int kwmd_time, kvamd_time;
+extern unsigned int bkp_kwmd_val;
+extern unsigned int bkp_kvamd_val;
+extern unsigned int bkp_kwmd_date, bkp_kwmd_time;
+extern unsigned int bkp_kvamd_date, bkp_kvamd_time;
 extern unsigned char bkp_pf_val;
-
 
 extern unsigned long int cum_on_time;
 extern unsigned long int cum_kwmd_val;
 extern unsigned long int kwcd_val;
 
 extern unsigned int hist_pf;
-extern unsigned int bkp_pf; //avg_pf, 
+extern unsigned int bkp_pf; // avg_pf,
 
 extern unsigned char prev_min;
 extern unsigned char ep_clr_stat;
-extern unsigned int md_intgr_val,survey_intgr_val;
-extern unsigned long int demand_volt, demand_amp, demand_pf;  
+extern unsigned int md_intgr_val, survey_intgr_val;
+extern unsigned long int demand_volt, demand_amp, demand_pf;
 
 extern unsigned char reset_on_min_ctr;
 extern unsigned long int power_on_time;
@@ -168,7 +168,6 @@ extern unsigned int prev_mnth, prev_day, prev_hr, prev_yr;
 extern unsigned long int prev_date;
 
 extern unsigned char md_reset_b;
-
 
 /*
 extern unsigned char set_cal_name_data;
@@ -215,7 +214,6 @@ extern unsigned long int Max_Demand_Capture_Period;
 extern unsigned long int Billing_Profile_Entries_In_Use;
 extern unsigned long int Billing_Profile_Entries;
 
-
 extern unsigned char bill_day[5];
 extern unsigned char bill_time[4];
 extern unsigned char scheduled_bill_day[5];
@@ -230,7 +228,7 @@ extern unsigned char Active_Season_Name[2][10];
 extern unsigned char Passive_Season_Name[2][10];
 extern unsigned char active_season_date[2][4];
 extern unsigned char passive_season_date[2][4];
-extern unsigned char tod_time[16][4]; //[8*2][4]
+extern unsigned char tod_time[16][4];         //[8*2][4]
 extern unsigned char passive_tod_time[16][4]; //[8*2][4]
 extern unsigned char tariff_id[2][8];
 extern unsigned char passive_tariff_id[2][8];
@@ -242,7 +240,7 @@ extern unsigned long int activate_time;
 
 extern unsigned int mnth_pos, day_pos;
 extern unsigned int tmpr_time_on_ctr[TAMPER_TYPE], tmpr_time_off_ctr[TAMPER_TYPE];
-//unsigned char occur_stat[TAMPER_TYPE];
+// unsigned char occur_stat[TAMPER_TYPE];
 extern unsigned int event_pos[TOT_EVENT_TYPE];
 extern unsigned long int store_tamper_stat; //,tamper_stat;
 extern unsigned long int day_hr_pos, tamper_cnt[TAMPER_TYPE];
@@ -250,28 +248,28 @@ extern unsigned long int event_cnt[TOT_EVENT_TYPE];
 extern unsigned long int Tamper_Profile_Entries_In_Use[TOT_EVENT_TYPE];
 extern unsigned long int Tamper_Profile_Entries[TOT_EVENT_TYPE];
 extern unsigned long int all_tamper_cnt;
-//unsigned long int all_tamper_cnt, bill_tamper_cnt, tamper_cnt_array[TAMPER_TYPE];
+// unsigned long int all_tamper_cnt, bill_tamper_cnt, tamper_cnt_array[TAMPER_TYPE];
 
 extern unsigned long int block_load_val[2], block_vrms, block_irms;
 
 extern unsigned char checksum, checksum_calc;
-extern unsigned int volt_fact, ampp_fact,ampn_fact, pf_fact, freq_fact, kw_fact,n_cfdenn_val,n_cfdenp_val,m_cfden_val,iagain_val, ibgain_val;
+extern unsigned int volt_fact, ampp_fact, ampn_fact, pf_fact, freq_fact, kw_fact, n_cfdenn_val, n_cfdenp_val, m_cfden_val, iagain_val, ibgain_val;
 extern int ph_val, iaph_val, ibph_val;
 
 extern unsigned long int meter_no;
 
-extern unsigned char pass_step,pass_ctr;
+extern unsigned char pass_step, pass_ctr;
 
-extern unsigned char recv_buf[25],recv_ctr,recv_ovf;
+extern unsigned char recv_buf[25], recv_ctr, recv_ovf;
 extern unsigned char enable_recv_buf;
 extern unsigned char transmit_complete;
 extern unsigned char comm_delay_ctr;
 extern unsigned long int comm_checksum;
 
-extern unsigned int bkp_kwmd_val; 
-extern unsigned int bkp_kvamd_val; 
-extern unsigned int bkp_kwmd_date, bkp_kwmd_time; 
-extern unsigned int bkp_kvamd_date, bkp_kvamd_time; 
+extern unsigned int bkp_kwmd_val;
+extern unsigned int bkp_kvamd_val;
+extern unsigned int bkp_kwmd_date, bkp_kwmd_time;
+extern unsigned int bkp_kvamd_date, bkp_kvamd_time;
 
 extern unsigned long int Cum_Power_Off_Count;
 extern unsigned long int Cum_Power_Off_Dur;
@@ -284,7 +282,7 @@ extern unsigned char time_string[12];
 extern unsigned char Last_MD_Rst_DT[12];
 extern unsigned char KWMD_DT[12];
 extern unsigned char KVAMD_DT[12];
-extern unsigned char tmp_time_string[12];//={0,0,0,0,0,0,0,0,0,0,0,0};
+extern unsigned char tmp_time_string[12]; //={0,0,0,0,0,0,0,0,0,0,0,0};
 
 extern unsigned char last_tamper_occ_type, last_tamper_res_type;
 extern unsigned int tamper_snap_index;
@@ -307,24 +305,23 @@ extern unsigned char read_data_arr[2][30];
 extern unsigned int u10_delay_ctr;
 extern tm_t s_time; // time structure.
 
-
 void get_time_data(unsigned long int, unsigned long int);
 unsigned int crc8(unsigned long int);
 unsigned int cyclic(unsigned int, unsigned int);
 void read_time_date(void);
 
 void default_eeprom(unsigned char);
-void write_eeprom(unsigned long int,unsigned char);
-void write_page_eeprom(unsigned long int,unsigned char);
+void write_eeprom(unsigned long int, unsigned char);
+void write_page_eeprom(unsigned long int, unsigned char);
 unsigned char read_eeprom(unsigned long int);
 void read_page_eeprom(unsigned long int, unsigned char, unsigned char);
 void to_eeprom(unsigned long int nAddr, unsigned long int ldata, unsigned char size);
-unsigned long int from_eeprom(unsigned long int nAddr,unsigned char size);
+unsigned long int from_eeprom(unsigned long int nAddr, unsigned char size);
 
-unsigned long int from_data_arr(unsigned long int,unsigned char, unsigned char);
+unsigned long int from_data_arr(unsigned long int, unsigned char, unsigned char);
 
 void delay1ms(unsigned char);
-void delay10us(unsigned char);	
+void delay10us(unsigned char);
 unsigned char convt_byte_to_bcd(unsigned char);
 unsigned char convt_bcd_to_byte(unsigned char);
 
@@ -350,21 +347,127 @@ void tamper_func(void);
 void store_event_data(unsigned char, unsigned int, unsigned char);
 unsigned char days_in_month(unsigned char);
 unsigned long int from_data_arr(unsigned long int, unsigned char, unsigned char);
-void get_active_season_data(void);//unsigned int); 
-void get_passive_season_data(void);//unsigned int); 
+void get_active_season_data(void);  // unsigned int);
+void get_passive_season_data(void); // unsigned int);
 
-void get_active_week_data(void);//unsigned int); 
-void get_passive_week_data(void);//unsigned int); 
+void get_active_week_data(void);  // unsigned int);
+void get_passive_week_data(void); // unsigned int);
 
-void get_active_day_data(void);//unsigned int); 
-void get_passive_day_data(void);//unsigned int); 
-void get_dlp_data(unsigned int); 
-void get_tamper_data(unsigned char, unsigned int); 
-void get_lp_data(unsigned int); 
-void get_bill_data(unsigned int); 
+void get_active_day_data(void);  // unsigned int);
+void get_passive_day_data(void); // unsigned int);
+void get_dlp_data(unsigned int);
+void get_tamper_data(unsigned char, unsigned int);
+void get_lp_data(unsigned int);
+void get_bill_data(unsigned int);
 void get_time_data(unsigned long int, unsigned long int);
 void find_num_between_lp_entries(void);
 void find_num_between_dlp_entries(void);
 void dlms_actions_func(void);
 
 void clearnvram(void);
+
+extern uint32_t inst_voltage, inst_phase_current, inst_neutral_current, inst_measured_current, inst_freq, inst_kva;
+extern int32_t inst_kw, inst_kvar, inst_pf, avg_pf;
+extern int32_t inst_kw_p, inst_kw_n, inst_kvar_p, inst_kvar_n;
+extern uint16_t dlms_manufacture_year;
+extern uint8_t SEC, MIN, HOUR, DATE, MONTH, YEAR;
+
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+
+extern uint8_t execution_billing_date[12][12];
+extern uint8_t dlms_billing_date[12];
+
+typedef struct
+{
+    uint8_t Bill_Date[12];
+    uint32_t Cumm_Energy_KWh;
+    uint32_t Cumm_Energy_KVAh;
+    uint16_t Power_On_Time;
+    uint16_t Sys_Power_Factor;
+    uint16_t MD_KW;
+    uint8_t MD_KW_DT[12];
+    uint16_t MD_KVA;
+    uint8_t MD_KVA_DT[12];
+    uint32_t Cumm_Energy_KWh_TZ[8];
+    uint32_t Cumm_Energy_KVAh_TZ[8];
+    uint16_t MD_KW_TZ[8];
+    uint16_t MD_KVA_TZ[8];
+    uint8_t MD_KW_TZ_DT[8][12];
+    uint8_t MD_KVA_TZ_DT[8][12];
+} stBilling_Profile_t;
+extern stBilling_Profile_t stBilling_Profile;
+
+typedef struct
+{
+    uint16_t Year;
+    uint8_t Month;
+    uint8_t Date;
+    uint8_t Hr;
+    uint8_t Min;
+} SA_Range_t;
+extern SA_Range_t SA_Range[2];
+
+extern uint32_t range_start_entry;
+extern uint32_t range_num_entries;
+
+typedef struct
+{
+    uint8_t Load_Date[12];
+    uint32_t E_Active;
+    uint32_t E_Apparent;
+    uint16_t Vrms;
+    uint16_t Irms;
+} stLoad_Profile_t;
+extern stLoad_Profile_t stLoad_Profile;
+
+typedef struct
+{
+    uint16_t Tamper_ID;
+    uint8_t Tamper_Date[12];
+    uint16_t Vrms;
+    uint16_t Irms;
+    uint8_t PF;
+    uint32_t E_Active;
+} stTamper_Profile_t;
+extern stTamper_Profile_t stTamper_Profile;
+
+typedef struct
+{
+    uint8_t Season_Name[10];
+    uint8_t Season_Date[12];
+} stSeason_Profile_t;
+extern stSeason_Profile_t stSeason_Profile[2];
+
+typedef struct
+{
+    uint8_t Week_Name[5];
+    uint8_t Week_Id[7];
+} stWeek_Profile_t;
+extern stWeek_Profile_t stWeek_Profile[2];
+
+typedef struct
+{
+    uint8_t day_id;
+    uint8_t tod_time[8][4];
+    uint16_t tariff_id[8];
+} stDay_Profile_t;
+extern stDay_Profile_t stDay_Profile[2];
+
+extern uint8_t dlms_lls_password[16];
+extern uint8_t dlms_hls_password[16];
+#define MAX_SECRET_LLS_LEN 16
+#define MAX_SECRET_HLS_LEN 16
+
+#ifndef DLMS_STRUCTS_DEFINED
+#define DLMS_STRUCTS_DEFINED
+typedef struct
+{
+    struct
+    {
+        unsigned char year_high, year_low, month, day_of_month, hour, minute;
+    } clock_value;
+    unsigned int voltage_value, kWh_value, kVAh_value, current_value;
+} class07_blockload_entry_t;
+#endif
+
+extern class07_blockload_entry_t g_Class07_BlockLoadBuffer;

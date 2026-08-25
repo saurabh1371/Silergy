@@ -1,7 +1,4 @@
 SET PATH=C:\Keil_v5\ARM\ARM_Compiler_5.06u7\Bin;C:\WINDOWS\system32;C:\WINDOWS;C:\WINDOWS\System32\Wbem;C:\WINDOWS\System32\WindowsPowerShell\v1.0\;C:\WINDOWS\System32\OpenSSH\;C:\Program Files\Git\cmd;C:\Program Files\Microchip\xc8\v3.10\bin;C:\Program Files\Microchip\xc-dsc\v3.21\bin;C:\Program Files\Microchip\xc16\v2.10\bin;C:\Program Files\Microchip\xc32\v4.60\bin;C:\Program Files\dotnet\;C:\Program Files\RedHat\java-1.8.0-openjdk-1.8.0.452-1\bin;C:\Program Files\RedHat\java-1.8.0-openjdk-1.8.0.452-1\jre\bin;C:\Program Files\nodejs\;C:\Users\Lenovo\AppData\Local\Programs\Python\Python38\Scripts\;C:\Users\Lenovo\AppData\Local\Programs\Python\Python38\;C:\Users\Lenovo\AppData\Local\Microsoft\WindowsApps;C:\Users\Lenovo\AppData\Local\Programs\Microsoft VS Code\bin;C:\Users\Lenovo\.dotnet\tools;C:\Users\Lenovo\AppData\Local\Python\bin;C:\Users\Lenovo\AppData\Roaming\npm
-SET ARMCC5_ASMOPT=--diag_suppress=9931
-SET ARMCC5_CCOPT=--diag_suppress=9931
-SET ARMCC5_LINKOPT=--diag_suppress=9931
 SET CPU_TYPE=ARMCM0
 SET CPU_VENDOR=ARM
 SET UV2_TARGET=Target 1
@@ -9,9 +6,9 @@ SET CPU_CLOCK=0x00B71B00
 "C:\Keil_v5\ARM\ARM_Compiler_5.06u7\Bin\ArmCC" --Via ".\objects\main.__i"
 "C:\Keil_v5\ARM\ARM_Compiler_5.06u7\Bin\ArmCC" --Via ".\objects\meter_1p2w.__i"
 "C:\Keil_v5\ARM\ARM_Compiler_5.06u7\Bin\ArmCC" --Via ".\objects\lcd_approved_lcd_for_rajasthan.__i"
+"C:\Keil_v5\ARM\ARM_Compiler_5.06u7\Bin\ArmCC" --Via ".\objects\cli_stub.__i"
 "C:\Keil_v5\ARM\ARM_Compiler_5.06u7\Bin\ArmCC" --Via ".\objects\asdaq_app.__i"
 "C:\Keil_v5\ARM\ARM_Compiler_5.06u7\Bin\ArmCC" --Via ".\objects\asdaq_variables.__i"
-"C:\Keil_v5\ARM\ARM_Compiler_5.06u7\Bin\ArmCC" --Via ".\objects\cli_stub.__i"
 "C:\Keil_v5\ARM\ARM_Compiler_5.06u7\Bin\ArmCC" --Via ".\objects\bat.__i"
 "C:\Keil_v5\ARM\ARM_Compiler_5.06u7\Bin\ArmCC" --Via ".\objects\ce.__i"
 "C:\Keil_v5\ARM\ARM_Compiler_5.06u7\Bin\ArmCC" --Via ".\objects\delay.__i"
@@ -60,17 +57,10 @@ SET CPU_CLOCK=0x00B71B00
 "C:\Keil_v5\ARM\ARM_Compiler_5.06u7\Bin\ArmAsm" --Via ".\objects\startup_sy7t108_keil._ia"
 "C:\Keil_v5\ARM\ARM_Compiler_5.06u7\Bin\ArmCC" --Via ".\objects\system_sy7t108.__i"
 "C:\Keil_v5\ARM\ARM_Compiler_5.06u7\Bin\ArmCC" --Via ".\objects\bl_array.__i"
-"C:\Keil_v5\ARM\ARM_Compiler_5.06u7\Bin\ArmCC" --Via ".\objects\dlmsif.__i"
-"C:\Keil_v5\ARM\ARM_Compiler_5.06u7\Bin\ArmCC" --Via ".\objects\dlmsif_timer.__i"
-"C:\Keil_v5\ARM\ARM_Compiler_5.06u7\Bin\ArmCC" --Via ".\objects\dlms_objects.__i"
-"C:\Keil_v5\ARM\ARM_Compiler_5.06u7\Bin\ArmCC" --Via ".\objects\dlms_variables.__i"
-"C:\Keil_v5\ARM\ARM_Compiler_5.06u7\Bin\ArmCC" --Via ".\objects\dlms_silergy_stubs.__i"
-"C:\Keil_v5\ARM\ARM_Compiler_5.06u7\Bin\ArmCC" --Via ".\objects\dlms_utils.__i"
-"C:\Keil_v5\ARM\ARM_Compiler_5.06u7\Bin\ArmCC" --Via ".\objects\dlmsif_dayprofile.__i"
-"C:\Keil_v5\ARM\ARM_Compiler_5.06u7\Bin\ArmCC" --Via ".\objects\dlmsif_instparams.__i"
-"C:\Keil_v5\ARM\ARM_Compiler_5.06u7\Bin\ArmCC" --Via ".\objects\dlmsif_loadsurvey.__i"
-"C:\Keil_v5\ARM\ARM_Compiler_5.06u7\Bin\ArmCC" --Via ".\objects\dlmsif_misc_params.__i"
-"C:\Keil_v5\ARM\ARM_Compiler_5.06u7\Bin\ArmCC" --Via ".\objects\dlmsif_tampers.__i"
-"C:\Keil_v5\ARM\ARM_Compiler_5.06u7\Bin\ArmCC" --Via ".\objects\dlmsif_tou.__i"
+"C:\Keil_v5\ARM\ARM_Compiler_5.06u7\Bin\ArmCC" --Via ".\objects\aes.__i"
+"C:\Keil_v5\ARM\ARM_Compiler_5.06u7\Bin\ArmCC" --Via ".\objects\dlms_cosem.__i"
+"C:\Keil_v5\ARM\ARM_Compiler_5.06u7\Bin\ArmCC" --Via ".\objects\dlms_hdlc.__i"
+"C:\Keil_v5\ARM\ARM_Compiler_5.06u7\Bin\ArmCC" --Via ".\objects\meter_dlms_objects.__i"
+"C:\Keil_v5\ARM\ARM_Compiler_5.06u7\Bin\ArmCC" --Via ".\objects\meter_dlms_profiles.__i"
 "C:\Keil_v5\ARM\ARM_Compiler_5.06u7\Bin\ArmLink" --Via ".\Objects\SY7T108_1p2w_shunt_ct_dlms_1.lnp"
 "C:\Keil_v5\ARM\ARM_Compiler_5.06u7\Bin\fromelf.exe" ".\Objects\SY7T108_1p2w_shunt_ct_dlms_1.axf" --i32combined --output ".\Objects\SY7T108_1p2w_shunt_ct_dlms_1.hex"

@@ -9,7 +9,7 @@
 //#include "lcd_ASDAQ.h"// Display labels.
 #include "Lcd_Approved_LCD_For_Rajasthan.h"// Display labels.
 #include "dlms_eeprom.h"   
-#include "dlms_variables.h"
+// #include "dlms_variables.h"
 #include "asdaq_variables.h"
 #include "Defines.h"
 #include "wd.h"         // Watchdog driver.

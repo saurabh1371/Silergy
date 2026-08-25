@@ -24,7 +24,7 @@
 #include "meter.h"	    // Check function prototypes.
 #include "Defines.h"
 #include "asdaq_variables.h"
-#include "dlms_variables.h"
+// #include "dlms_variables.h"
 /*** Version ****/
 const char fw_ver_meter[] =
 "meter" /* Library file name */

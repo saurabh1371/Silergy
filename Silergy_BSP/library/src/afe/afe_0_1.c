@@ -25,7 +25,7 @@
 #include "mmath.h"      // lroundf
 #include "Defines.h"
 #include "asdaq_variables.h"
-#include "dlms_variables.h"
+// #include "dlms_variables.h"
 
 #if REMOTES
 #include "log.h"        // needs to report errors.
@@ -187,8 +187,8 @@ int32_t afe_get_cal(Cal_t *c_ptr)
 * Parameters:
 * Input:
 * Cal_t includes i_max, v_max, i_min (the starting current), v_min
-* (the starting voltage), and a copy of the CE’s calibration array. 
-* Cal_t should be saved and restored by higher-level code’s 
+* (the starting voltage), and a copy of the CEï¿½s calibration array. 
+* Cal_t should be saved and restored by higher-level codeï¿½s 
 * save and restore of the calibration.
 * Return Status:
 *   returns counts per pulse, counts' LSBs as returned by afe_wh();
@@ -270,8 +270,8 @@ int32_t afe_recalc(Cal_t *c_ptr)
 * Parameters:
 * Input:
 * Cal_t includes i_max, v_max, i_min (the starting current), v_min
-* (the starting voltage), and a copy of the CE’s calibration array. 
-* Cal_t should be saved and restored by higher-level code’s 
+* (the starting voltage), and a copy of the CEï¿½s calibration array. 
+* Cal_t should be saved and restored by higher-level codeï¿½s 
 * save and restore of the calibration.
 * Return Status:
 *   returns counts per pulse, counts' LSBs as returned by afe_wh();
@@ -519,8 +519,8 @@ int32_t afe_enable(const ce_t *ce_ptr_tmp, Cal_t *c_ptr)
 *
 * Parameters:
 * Input:
-* Cal_t includes the CE’s calibration array. Cal_t should be saved and 
-* restored by higher-level code’s save and restore of the calibration.
+* Cal_t includes the CEï¿½s calibration array. Cal_t should be saved and 
+* restored by higher-level codeï¿½s save and restore of the calibration.
 * Return Status:
 * returns counts per pulse, counts' LSBs as returned by afe_wh();
 * or afe_native_per_pulse(), suitable for initializing the meter math add().
@@ -596,7 +596,7 @@ void afe_disable(void)
 
 /****************************************************************************
 * Description:
-*   Gets the AFE’s status.
+*   Gets the AFEï¿½s status.
 * Parameters:
 *   Input:
 *         a mask to select the status desired
