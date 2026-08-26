@@ -304,6 +304,7 @@ extern unsigned char disp_md_type;
 extern unsigned char read_data_arr[2][30];
 extern unsigned int u10_delay_ctr;
 extern tm_t s_time; // time structure.
+extern uint8_t SerialDisplayTimeOut;
 
 void get_time_data(unsigned long int, unsigned long int);
 unsigned int crc8(unsigned long int);

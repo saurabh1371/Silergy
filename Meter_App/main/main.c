@@ -1054,6 +1054,7 @@ void serial_comm(void)
 				case DLOAD_CMD:
 				case BILL_DAY_CMD:
 				case RTC_CALIB_CMD:
+					SerialDisplayTimeOut = 1; // --- Hold display for 1 seconds ---
 					if ((cmd == TIME_CMD) || (cmd == DATE_CMD))
 					{
 						disp_all_lcd(0x00);
@@ -1168,11 +1169,13 @@ void serial_comm(void)
 					break;
 
 				case MDRESET_CMD:
+					SerialDisplayTimeOut = 1;
 					CalDisplayVar = RESET;
 					CalDisplay();
 					break;
 
 				case CUOPEN_CMD:
+					SerialDisplayTimeOut = 1;
 					CalDisplayVar = CLRC;
 					CalDisplay();
 					for (i = 0; i < 7; i++)
@@ -1194,6 +1197,7 @@ void serial_comm(void)
 					{
 						pass_step = 0;
 						pass_ctr = 0;
+						SerialDisplayTimeOut = 1;
 						CalDisplayVar = UNLOCK;
 						CalDisplay();
 						meter_no = 0;
@@ -1207,6 +1211,7 @@ void serial_comm(void)
 					break;
 
 				case CLR1_CMD:
+					SerialDisplayTimeOut = 1;
 					CalDisplayVar = CLR1;
 					CalDisplay();
 					default_eeprom(1);
@@ -1219,6 +1224,7 @@ void serial_comm(void)
 
 				case CLR2_CMD:
 				{
+					SerialDisplayTimeOut = 1;
 					disp_all_lcd(0x00);
 					CalDisplayVar = CLR2;
 					CalDisplay();
@@ -1230,6 +1236,7 @@ void serial_comm(void)
 				break;
 
 				case CLR_TAMPER_CMD:
+					SerialDisplayTimeOut = 1;
 					disp_all_lcd(0x00);
 					CalDisplayVar = CLR3;
 					CalDisplay();

@@ -78,6 +78,7 @@ unsigned char set_tamper_time;
 
 unsigned char set_clock_time_zone;
 unsigned int clock_time_zone;
+uint8_t SerialDisplayTimeOut = 0;
 
 unsigned char activate_tod_stat;
 
