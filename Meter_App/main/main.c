@@ -983,18 +983,25 @@ void _1_SecFunction(void)
 #define CAL_CT_Read_UPF_Power 104
 #define CAL_CT_Read_Lag_Power 105
 extern void meter_sum_data(void); // Adds up the billing data.;
+
 void serial_comm(void)
 {
 	unsigned int cmd;
 	unsigned int i, tmp_int;
 	unsigned long int tmp_long;
 
-	/* 1. If buffer is empty or packet is a DLMS frame (0x7E), exit immediately
-	 * (unchanged from your DLMS-era version - lets the two protocols share UART2) */
-	if (recv_ctr < 2 || recv_buf[0] == 0x7E)
+	/* If a DLMS frame flag is detected, flush it to prevent lockout */
+	if (recv_buf[0] == 0x7E)
 	{
+		for (i = 0; i < 25; i++)
+			recv_buf[i] = 0;
+		recv_ctr = 0;
 		return;
 	}
+
+	/* 1. If buffer is empty, exit immediately */
+	if (recv_ctr < 2)
+		return;
 
 	/* 2. Wait for full frame arrival */
 	tmp_int = recv_ctr;
