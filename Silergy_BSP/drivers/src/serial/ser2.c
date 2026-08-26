@@ -40,6 +40,8 @@ static tx_ov_fnptr_t tx_ov_cb;
 extern unsigned char recv_buf[25], recv_ctr, recv_ovf;
 extern unsigned char enable_recv_buf;
 
+volatile bool uart2_tx_ready = true;
+
 /*
 extern unsigned char transmit_complete;
 extern unsigned char comm_delay_ctr;
@@ -144,7 +146,15 @@ void ser2_deinit(void)
  ****************************************************************************/
 int ser2_tx_ch(int c)
 {
-    UART2->DATA = c; /* write to transmit holding register   */
+    // Wait here until the previous byte has physically left the register
+    while (!uart2_tx_ready)
+    {
+        wd_reset(); // Keep the watchdog fed during long DLMS frame transmissions
+    }
+
+    uart2_tx_ready = false; // Lock the flag
+    UART2->DATA = c;        // Send the new byte
+
     return c;
 }
 
@@ -162,13 +172,14 @@ int ser2_tx_ch(int c)
  ******************************************************************************/
 void UARTTX2_Handler(void)
 {
-    // uint8_t recv_byte;
     if (UART2->INT_b.tx_i) // Tx interrupt
     {
         UART2->INT = TX_INT_ACK; // Clear Tx interrupt flag
 
-        if (NULL != tx_cb) // If call back is registered
-            tx_cb();       // Notify Tx is free by calling event handler function
+        uart2_tx_ready = true; // Flag that hardware is free for the next byte
+
+        if (NULL != tx_cb)
+            tx_cb();
     }
 }
 
