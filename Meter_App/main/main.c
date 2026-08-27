@@ -548,7 +548,8 @@ int main(void)
 	init_tod();
 
 	if (WakeFromReason == WAKE_FROM_MAINS)
-	{
+	{	
+		read_time_date();
 		TaskAutoScroll();
 	}
 	else // if wake from push button comm mode
@@ -938,6 +939,7 @@ void _1_SecFunction(void)
 		_1_SecFlag = 0;
 		WatchdogResetVar = 1;
 		rtc_read(&global.reg.tm);
+		read_time_date();
 
 		DLMS_HDLC_Tick();
 
@@ -962,7 +964,6 @@ void _1_SecFunction(void)
 		prev_day = (prev_date / 10000);
 		prev_hr = read_eeprom(HR_LOC);
 
-		read_time_date();
 		dlms_actions_func();
 		// inst_param_func();
 		load_func();
