@@ -289,7 +289,24 @@ void TaskAutoScroll(void)
 		LCD_PushButton_Parm = 0;
 		s_push_banner_done = 0; // re-arm so the next button press shows "PUSH" again
 
-		if (!s_auto_banner_done) // show "AUTO" before the first screen of each Auto Mode cycle
+		// 1. Process the 10-second hold and cycle wrap FIRST
+		if (s_auto_banner_done)
+		{
+			if (NoOfSeconds++ >= 10)
+			{
+				NoOfSeconds = 0;
+				LCD_DisplayParm++;
+				if (LCD_DisplayParm >= DISP_AUTO_TOTAL_SCREENS)
+				{
+					LCD_DisplayParm = 0;
+					s_auto_banner_done = 0; // Trigger "AUTO" banner for the next pass
+				}
+			}
+		}
+
+		// 2. Process the banner SECOND. If the cycle just wrapped, this catches it
+		// instantly and returns before hitting the switch statement.
+		if (!s_auto_banner_done)
 		{
 			LCD->MODE_b.on = 0;
 			lcd_put_flash_str(1, test_str[30]); // "AUTO"
@@ -301,24 +318,9 @@ void TaskAutoScroll(void)
 				LCD_DisplayParm = DISP_AUTO_SEG_CHECK;
 				NoOfSeconds = 0;
 			}
-			return;
-		}
-
-		if (NoOfSeconds++ >= 10)
-		{
-			NoOfSeconds = 0;
-			LCD_DisplayParm++;
-			if (LCD_DisplayParm >= DISP_AUTO_TOTAL_SCREENS)
-			{
-				LCD_DisplayParm = 0;
-				s_auto_banner_done = 0; // show "AUTO" again at the start of the next pass
-			}
+			return; // Safely exit here so the LCD isn't overwritten
 		}
 	}
-
-	/*EEPROM_Test++;
-	to_eeprom(1234,EEPROM_Test,4);
-	EEPROM_Test_1=from_eeprom(1234,4);//*/
 
 	LCD->MODE_b.on = 0; // make sure the segment-test screen isn't left on from the previous pass
 	switch (LCD_DisplayParm)
