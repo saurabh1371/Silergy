@@ -11,7 +11,9 @@
 // #include "dlms_variables.h"
 #include "asdaq_variables.h"
 #include "Defines.h"
-#include "wd.h" // Watchdog driver.
+#include "wd.h"	 // Watchdog driver.
+#include "irq.h" // Global interrupt enable/disable macros
+
 void PushButtonDisplay(void);
 void Display_Version(void);
 void PushButtonWakeDisplay(void);
@@ -410,14 +412,28 @@ void TaskAutoScroll(void)
 		break;
 
 	case DISP_PM_ONHR: // 12. Previous month power-on hours (H1, Bill)
+	{
+		uint32_t hrs;
+
 		PB_LoadBillHistory(1);
-		lcd_put_num(3, 4, stBilling_Profile.Power_On_Time / 60); // stored in minutes -> hours, digits 3-6
-		lcd_put_flash_str(1, test_str[27]);						 // "ON" tag in the 2 spare leading digits (1-2)
+		hrs = stBilling_Profile.Power_On_Time / 60;
+
+		if (hrs > 999)
+			lcd_put_num(3, 4, hrs);
+		else if (hrs > 99)
+			lcd_put_num(4, 3, hrs);
+		else if (hrs > 9)
+			lcd_put_num(5, 2, hrs);
+		else
+			lcd_put_num(6, 1, hrs);
+
+		lcd_put_flash_str(1, test_str[27]); // "ON" tag
 		lcd_put_char(7, 'H');
 		lcd_put_num(8, 1, 1);
 		lcd_put_icon(T13); // BP
 		lcd_put_icon(T17); // h
 		break;
+	}
 
 	default: // shouldn't be reached - the wrap check above keeps LCD_DisplayParm < DISP_AUTO_TOTAL_SCREENS
 		LCD_DisplayParm = 0;
@@ -499,7 +515,14 @@ static void PB_ShowMDHistory(uint8_t hist_idx, uint8_t sub, uint8_t is_kva)
 		lcd_put_icon(T13); // BP
 		lcd_put_char(7, 'H');
 		lcd_put_num(8, 1, hist_idx);
-		break;
+		if (is_kva)
+		{
+			KVA_Icon;
+		}
+		else
+		{
+			KW_Icon;
+		}
 		break;
 	case 2:							 // time
 		lcd_put_num(5, 2, md_dt[7]); // sec
@@ -511,6 +534,15 @@ static void PB_ShowMDHistory(uint8_t hist_idx, uint8_t sub, uint8_t is_kva)
 		lcd_put_icon(T13); // BP
 		lcd_put_char(7, 'H');
 		lcd_put_num(8, 1, hist_idx);
+		if (is_kva)
+		{
+			KVA_Icon;
+		}
+		else
+		{
+			KW_Icon;
+		}
+		break;
 	}
 }
 
@@ -659,22 +691,73 @@ void PushButtonDisplay(void)
 		break;
 
 	case PB_HIRES_KWH: // High resolution KWh (2+4)
-		// Same accumulator as PB_KWH, re-windowed to show 2 integer + 4
-		// fractional digits instead of 6+1. TODO(bench): confirm this
-		// matches the meter's actual accuracy class / resolution spec -
-		// the underlying register only carries 1 decimal of real precision.
-		lcd_put_num(1, 6, load_val[0] % 1000000UL);
+	{
+		uint32_t l_load_val, l_load_rmndr, l_load_ctr;
+		int32_t l_wh_frac, l_wsum_per_cnt;
+		uint32_t real_wh;
+		uint32_t tenths_of_wh;
+		uint32_t real_wh_tenths;
+
+		// Snapshot all sources atomically to prevent metrology race conditions
+		IRQ_DISABLE();
+		l_load_val = load_val[0];
+		l_load_rmndr = load_rmndr[0];
+		l_load_ctr = load_ctr[0];
+		l_wh_frac = global.misc.wh_frac;
+		l_wsum_per_cnt = global.cal.wsum_per_cnt;
+		IRQ_GLOBAL_ENABLE();
+
+		// 1. Reconstruct 1 Wh precision from application accumulators
+		real_wh = (l_load_val * 10) + l_load_rmndr + l_load_ctr;
+
+		// 2. Extract the sub-1-Wh fractional energy from the metrology core (tenths of a Wh)
+		tenths_of_wh = (l_wsum_per_cnt > 0)
+						   ? ((uint32_t)l_wh_frac * 10) / (uint32_t)l_wsum_per_cnt
+						   : 0;
+
+		// 3. Combine them to get 0.0001 kWh precision
+		real_wh_tenths = (real_wh * 10) + tenths_of_wh;
+
+		lcd_put_num(1, 6, real_wh_tenths % 1000000UL);
 		lcd_put_icon(P1);
 		KWh_Icon;
 		lcd_put_char(7, 'H');
 		break;
+	}
 
 	case PB_HIRES_KVAH: // High resolution KVAh (2+4)
-		lcd_put_num(1, 6, load_val[1] % 1000000UL);
+	{
+		uint32_t l_load_val, l_load_rmndr, l_load_ctr;
+		int32_t l_vah_frac, l_wsum_per_cnt;
+		uint32_t real_vah;
+		uint32_t tenths_of_vah;
+		uint32_t real_vah_tenths;
+
+		IRQ_DISABLE();
+		l_load_val = load_val[1];
+		l_load_rmndr = load_rmndr[1];
+		l_load_ctr = load_ctr[1];
+		l_vah_frac = global.misc.vah_frac;
+		l_wsum_per_cnt = global.cal.wsum_per_cnt;
+		IRQ_GLOBAL_ENABLE();
+
+		// 1. Reconstruct 1 VAh precision from application accumulators
+		real_vah = (l_load_val * 10) + l_load_rmndr + l_load_ctr;
+
+		// 2. Extract the sub-1-VAh fractional energy from the metrology core
+		tenths_of_vah = (l_wsum_per_cnt > 0)
+							? ((uint32_t)l_vah_frac * 10) / (uint32_t)l_wsum_per_cnt
+							: 0;
+
+		// 3. Combine them to get 0.0001 kVAh precision
+		real_vah_tenths = (real_vah * 10) + tenths_of_vah;
+
+		lcd_put_num(1, 6, real_vah_tenths % 1000000UL);
 		lcd_put_icon(P1);
 		KVAh_Icon;
 		lcd_put_char(7, 'H');
 		break;
+	}
 
 	case PB_IL_KW: // Instant Load in KW (3 decimal)
 		lcd_put_icon(P1);
@@ -727,17 +810,29 @@ void PushButtonDisplay(void)
 		lcd_put_flash_str(1, test_str[0]); // "PF"
 		break;
 
-	case PB_ONHR:							   // Power-on hours, current month
-		lcd_put_num(3, 4, reset_on_time / 60); // stored in minutes -> hours
-		lcd_put_flash_str(1, test_str[27]);	   // "ON"
-		lcd_put_icon(T17); // h
+	case PB_ONHR: // Power-on hours, current month
+	{
+		uint32_t hrs = reset_on_time / 60;
+
+		if (hrs > 999)
+			lcd_put_num(3, 4, hrs);
+		else if (hrs > 99)
+			lcd_put_num(4, 3, hrs);
+		else if (hrs > 9)
+			lcd_put_num(5, 2, hrs);
+		else
+			lcd_put_num(6, 1, hrs);
+
+		lcd_put_flash_str(1, test_str[27]); // "ON"
+		lcd_put_icon(T17);					// h
 		break;
+	}
 
 	case PB_AVG_PF: // Average PF
 		lcd_put_icon(P2);
 		lcd_put_num(4, 3, abs(avg_pf));
 		lcd_put_flash_str(1, test_str[0]); // "PF"
-		lcd_put_icon(T8); // AV
+		lcd_put_icon(T8);				   // AV
 		break;
 
 	default: // shouldn't be reached - TaskAutoScroll() stops the cycle at PB_TOTAL_SCREENS
@@ -986,60 +1081,85 @@ static void BatteryModeRender(void)
 		break;
 
 	case BAT_MD_KW: // Current month MD in KW (3 decimal)
-		lcd_put_icon(P2);
-		lcd_put_num(4, 4, MD_THOUSANDTHS(kwmd_val));
+		lcd_put_icon(P1);
+		lcd_put_num(2, 4, MD_THOUSANDTHS(kwmd_val)); // X.XXX - digits 2-5
 		KW_Icon;
 		lcd_put_icon(T12);
 		break;
 
 	case BAT_MD_KVA: // Current month MD in KVA (3 decimal)
-		lcd_put_icon(P2);
-		lcd_put_num(4, 4, MD_THOUSANDTHS(kvamd_val));
+		lcd_put_icon(P1);
+		lcd_put_num(2, 4, MD_THOUSANDTHS(kvamd_val)); // X.XXX - digits 2-5, mirrors DISP_MD
 		KVA_Icon;
-		lcd_put_icon(T12);
+		lcd_put_icon(T12); // "MD" icon (shared with the KW-MD screen)
 		break;
 
 	case BAT_PM_KWH: // Previous month KWh (5+1, H1, Bill)
 		PB_LoadBillHistory(1);
-		lcd_put_num(2, 6, ENERGY_TENTHS(stBilling_Profile.Cumm_Energy_KWh));
+		lcd_put_num(1, 6, ENERGY_TENTHS(stBilling_Profile.Cumm_Energy_KWh)); // (5+1), digits 1-6
 		KWh_Icon;
-		lcd_put_char(1, 'H');
+		lcd_put_char(7, 'H');
 		lcd_put_num(8, 1, 1);
+		lcd_put_icon(T1);
+		lcd_put_icon(T13);
 		break;
 
 	case BAT_PM_KVAH: // Previous month KVAh (5+1, H1, Bill)
 		PB_LoadBillHistory(1);
-		lcd_put_num(2, 6, ENERGY_TENTHS(stBilling_Profile.Cumm_Energy_KVAh));
+		lcd_put_num(1, 6, ENERGY_TENTHS(stBilling_Profile.Cumm_Energy_KVAh)); // (5+1), digits 1-6
 		KVAh_Icon;
-		lcd_put_char(1, 'H');
+		lcd_put_char(7, 'H');
 		lcd_put_num(8, 1, 1);
+		lcd_put_icon(T1);
+		lcd_put_icon(T13); // BP
 		break;
 
 	case BAT_PM_MD_KW: // Previous month MD in KW (3 decimal, H1, Bill)
 		PB_LoadBillHistory(1);
-		lcd_put_icon(P2);
-		lcd_put_num(4, 4, MD_THOUSANDTHS(stBilling_Profile.MD_KW));
+		lcd_put_icon(P1);
+		lcd_put_num(2, 4, MD_THOUSANDTHS(stBilling_Profile.MD_KW)); // X.XXX - digits 2-5
 		KW_Icon;
-		lcd_put_icon(T12);
-		lcd_put_char(1, 'H');
-		lcd_put_num(2, 1, 1);
+		lcd_put_icon(T12); // "MD" icon
+		lcd_put_icon(T13); // BP
+		lcd_put_char(7, 'H');
+		lcd_put_num(8, 1, 1);
 		break;
 
 	case BAT_PM_MD_KVA: // Previous month MD in KVa (3 decimal, H1, Bill)
 		PB_LoadBillHistory(1);
-		lcd_put_icon(P2);
-		lcd_put_num(4, 4, MD_THOUSANDTHS(stBilling_Profile.MD_KVA));
+		lcd_put_icon(P1);
+		lcd_put_num(2, 4, MD_THOUSANDTHS(stBilling_Profile.MD_KVA)); // X.XXX - digits 2-5
 		KVA_Icon;
 		lcd_put_icon(T12);
-		lcd_put_char(1, 'H');
-		lcd_put_num(2, 1, 1);
+		lcd_put_icon(T13); // BP
+		lcd_put_char(7, 'H');
+		lcd_put_num(8, 1, 1);
 		break;
 
 	case BAT_PM_ONHR: // Previous month power-on hours (P, on, Bill)
+	{
+		uint32_t hrs;
+
 		PB_LoadBillHistory(1);
-		lcd_put_num(4, 4, stBilling_Profile.Power_On_Time / 60); // minutes -> hours
-		lcd_put_flash_str(1, test_str[27]);						 // "PON"
+		hrs = stBilling_Profile.Power_On_Time / 60;
+
+		// Battery mode shifts the digits right by one index
+		if (hrs > 999)
+			lcd_put_num(4, 4, hrs);
+		else if (hrs > 99)
+			lcd_put_num(5, 3, hrs);
+		else if (hrs > 9)
+			lcd_put_num(6, 2, hrs);
+		else
+			lcd_put_num(7, 1, hrs);
+
+		lcd_put_flash_str(1, test_str[27]); // "ON" tag
+		lcd_put_char(7, 'H');
+		lcd_put_num(8, 1, 1);
+		lcd_put_icon(T13); // BP
+		lcd_put_icon(T17); // h
 		break;
+	}
 
 	default:
 		BAT_DisplayParm = 0;
