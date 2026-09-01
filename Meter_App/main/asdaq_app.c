@@ -30,6 +30,12 @@
 // #include "eeprom.h"
 #include "dlms_eeprom.h"
 // #include "dlms_utils.h"
+
+/* Full-resolution per-period demand snapshots, produced by meter_demand()
+ * in meter_1p2w.c. store_md_data() below reads these instead of deriving
+ * demand from load_val[] pulse deltas (added - see store_md_data()). */
+extern int32_t g_dmd_period_kw;
+extern int32_t g_dmd_period_kva;
 #include "asdaq_variables.h"
 
 unsigned char months[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
@@ -1250,13 +1256,45 @@ void store_md_data(unsigned int time_val)
 
   for (i = 0; i < 2; i++)
   {
-    // scratch=from_eeprom(LAST_DEMAND_KWH_LOC+(i*4),4);
-    if (load_val[i] > last_demand_load_val[i])
-      scratch = load_val[i] - last_demand_load_val[i];
-    else
-      scratch = 0;
-
-    scratch = (scratch * 60) / md_intgr_val;
+    /* MD (Maximum Demand) - CHANGED to source from the metering core's
+     * high-resolution per-period demand average (meter_1p2w.c:meter_demand(),
+     * g_dmd_period_kw/g_dmd_period_kva) instead of recomputing it here from
+     * load_val[] pulse deltas.
+     *
+     * Why: the old calc - scratch = (load_val[i]-last_demand_load_val[i])
+     * then scratch*600/md_intgr_val - is quantized in steps of
+     * (600/md_intgr_val) because load_val[] only advances in whole 0.01
+     * kWh/kVAh counts. At the default md_intgr_val=30, that step is exactly
+     * 20 (thousandths of a kW/kVA) - and every multiple of 20 is also a
+     * multiple of 10, so the 3rd decimal digit was mathematically always 0.
+     * meter_demand() instead accumulates the raw AFE W/VA sums with a
+     * carried fraction (p2f()) and divides once, in float, at the end of
+     * the fixed period - giving genuine, non-quantized thousandths-of-kW/
+     * kVA resolution at the SAME fixed integration period (md_intgr_val /
+     * global.cal.interval), no shortcut taken.
+     *
+     * i==0 -> KW demand, i==1 -> KVA demand, matching the load_val[]/
+     * kwmd_val/kvamd_val convention used throughout this function.
+     *
+     * TO VERIFY before relying on this in the field:
+     *  - global.cal.interval (drives meter_demand()'s call in main.c) and
+     *    md_intgr_val (drives this function's call, below in the caller)
+     *    must represent the SAME period. They're set independently right
+     *    now - confirm they're kept in sync (ideally from one source).
+     *  - meter_demand() must run for this period BEFORE store_md_data()
+     *    is called for it, so g_dmd_period_kw/kva reflect the period just
+     *    closed rather than a stale one. Check the two callers' ordering
+     *    within the same once-per-minute tick.
+     *  - kwmd_val/kvamd_val are `unsigned int` (16-bit): fine up to 65.535
+     *    kW/kVA at thousandths scale - re-check against your CT/PT class.
+     *  - Any DLMS/serial-comm code elsewhere that reads kwmd_val,
+     *    stBilling_Profile.MD_KW/MD_KVA, or KWMD_LOC/KVAMD_LOC directly
+     *    should already assume thousandths scale (unchanged from before -
+     *    this patch does not change the scale, only the source/resolution
+     *    of the value written into it).
+     *  - MD history already stored in EEPROM is unaffected by this change
+     *    (still same scale as before); no migration needed. */
+    scratch = (i == 0) ? g_dmd_period_kw : g_dmd_period_kva;
 
     if (i == 0)
     {

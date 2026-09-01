@@ -1,4 +1,3 @@
-
 #include "options.h" // System options for compiler, hardware, etc.
 #include <math.h>	 // for fabs()
 #include "afe.h"	 // For meter data to display.
@@ -231,6 +230,19 @@ uint32_t EEPROM_Test = 4567, EEPROM_Test_1;
 long templong;
 uint16_t MD_Year;
 uint8_t NoOfSeconds;
+
+/* Forward declaration: avoids re-reading the same EEPROM billing history
+ * entry on every 1 s tick while a history screen is held (definition below,
+ * shared by Auto Mode, Push Button Mode, and Battery Mode). */
+static void PB_LoadBillHistory(uint8_t idx);
+
+/* --- Mode-entry banners ("AUTO" / "PUSH"), held for MODE_BANNER_DURATION_SEC
+ * seconds before the corresponding scroll cycle starts (see display spec). */
+static uint8_t s_push_banner_ctr;
+static uint8_t s_push_banner_done;
+static uint8_t s_auto_banner_ctr;
+static uint8_t s_auto_banner_done; // 0 = show "AUTO" before the next cycle (incl. at power-up)
+
 void TaskAutoScroll(void)
 {
 	// --- Hold the display for serial commands ---
@@ -239,21 +251,66 @@ void TaskAutoScroll(void)
 		SerialDisplayTimeOut--;
 		return; // Skip the auto-scroll update while the timer is active
 	}
-	if ((PushButtonDisplayFlag == 1) && (PushButtonTimeOut < 10))
+	if ((PushButtonDisplayFlag == 1) && (LCD_PushButton_Parm < PB_TOTAL_SCREENS))
 	{
+		if (!s_push_banner_done) // show "PUSH" before the very first screen of this cycle
+		{
+			LCD->MODE_b.on = 0;
+			lcd_put_flash_str(1, test_str[31]); // "PUSH"
+			Put_Data_On_LCD();
+			if (++s_push_banner_ctr >= MODE_BANNER_DURATION_SEC)
+			{
+				s_push_banner_ctr = 0;
+				s_push_banner_done = 1;
+			}
+			return;
+		}
+
 		PushButtonDisplay();
-		PushButtonTimeOut++;
+		if (++PushButtonTimeOut >= 10) // hold each screen 10 s
+		{
+			PushButtonTimeOut = 0;
+			LCD_PushButton_Parm++; // next screen; auto-terminates after one full cycle
+		}
 		return;
 	}
 	else
 	{
+		if (PushButtonDisplayFlag == 1) // we were still in Push mode last tick - it just ended
+		{
+			s_auto_banner_done = 0; // show the "AUTO" banner right away
+			LCD_DisplayParm = 0;	// and restart Auto Mode from the top of its list
+			NoOfSeconds = 0;
+		}
 		PushButtonDisplayFlag = 0;
 		PushButtonTimeOut = 0;
 		LCD_PushButton_Parm = 0;
+		s_push_banner_done = 0; // re-arm so the next button press shows "PUSH" again
+
+		if (!s_auto_banner_done) // show "AUTO" before the first screen of each Auto Mode cycle
+		{
+			LCD->MODE_b.on = 0;
+			lcd_put_flash_str(1, test_str[30]); // "AUTO"
+			Put_Data_On_LCD();
+			if (++s_auto_banner_ctr >= MODE_BANNER_DURATION_SEC)
+			{
+				s_auto_banner_ctr = 0;
+				s_auto_banner_done = 1;
+				LCD_DisplayParm = DISP_AUTO_SEG_CHECK;
+				NoOfSeconds = 0;
+			}
+			return;
+		}
+
 		if (NoOfSeconds++ >= 10)
 		{
 			NoOfSeconds = 0;
 			LCD_DisplayParm++;
+			if (LCD_DisplayParm >= DISP_AUTO_TOTAL_SCREENS)
+			{
+				LCD_DisplayParm = 0;
+				s_auto_banner_done = 0; // show "AUTO" again at the start of the next pass
+			}
 		}
 	}
 
@@ -261,115 +318,110 @@ void TaskAutoScroll(void)
 	to_eeprom(1234,EEPROM_Test,4);
 	EEPROM_Test_1=from_eeprom(1234,4);//*/
 
+	LCD->MODE_b.on = 0; // make sure the segment-test screen isn't left on from the previous pass
 	switch (LCD_DisplayParm)
 	{
-	case DISP_V: // Voltage
-
-		if (nmiss_stat == 1)
-			lcd_put_num(3, 4, 2400); //  dec place
-		else
-			lcd_put_num(3, 4, inst_voltage); // 1 dec place
-
-		V_Icon
-			lcd_put_icon(T1);
+	case DISP_AUTO_SEG_CHECK: // 1. LCD segment check (lamp test)
+		LCD->MODE_b.on = 1;
 		break;
 
-	case DISP_I_S: // Shunt Current
-		lcd_put_icon(P2);
-		if (inst_phase_current > 8)
-			lcd_put_num(3, 5, inst_phase_current); // 2 dec place
-		else
-			lcd_put_num(3, 5, 0); // 2 dec place
-
-		lcd_put_flash_str(1, test_str[4]);
-		A_Icon;
-		break;
-
-	case DISP_I_N: // Neutral Current
-		lcd_put_icon(P2);
-
-		if (inst_neutral_current > 7)
-			lcd_put_num(3, 5, inst_neutral_current); // 2 dec place
-		else
-			lcd_put_num(3, 5, 0); // 2 dec place
-
-		lcd_put_flash_str(1, test_str[5]);
-		A_Icon;
-		break;
-
-	case DISP_KW_S: // Shunt Power
-		lcd_put_icon(P2);
-		lcd_put_num(4, 4, inst_kw); //  dec place
-		KW_Icon;
-		break;
-
-	case DISP_KWH: // Active energy
-		lcd_put_icon(T1);
-		lcd_put_num(1, 7, load_val[0]); //  dec place //load_val[0]
+	case DISP_KWH: // 2. KWh (6+1)
+		lcd_put_icon(P3);
+		lcd_put_num(1, 7, ENERGY_TENTHS(load_val[0]));
 		KWh_Icon;
 		break;
 
-	case DISP_FREQ: // Frequency
-		lcd_put_num(4, 3, inst_freq);
-		lcd_put_icon(T1);
-		lcd_put_flash_str(1, test_str[20]);
+	case DISP_KVAH: // 3. KVAh (6+1)
+		lcd_put_icon(P3);
+		lcd_put_num(1, 7, ENERGY_TENTHS(load_val[1])); // (6+1) - fills all 8 digits, same layout as DISP_KWH
+		KVAh_Icon;
 		break;
 
-	case DISP_PF: // pf
-		lcd_put_icon(P2);
-		lcd_put_num(4, 3, abs(inst_pf));
-		lcd_put_flash_str(1, test_str[0]);
-		break;
-
-	case DISP_TIME:				 // Current Time
-		lcd_put_num(5, 2, SEC);	 // sec
-		lcd_put_num(3, 2, MIN);	 // min
-		lcd_put_num(1, 2, HOUR); // hr
-		lcd_put_icon(P4);
-		lcd_put_icon(T7);
-		break;
-
-	case DISP_DATE:				  // Current Date
-		lcd_put_num(5, 2, YEAR);  // Year
-		lcd_put_num(3, 2, MONTH); // Month
-		lcd_put_num(1, 2, DATE);  // Date
-		lcd_put_icon(P4);
-		lcd_put_icon(T6);
-		break;
-
-	case DISP_MD: // MD
-		lcd_put_icon(P2);
-		lcd_put_num(4, 3, kwmd_val); //  dec place
+	case DISP_MD: // 4. Current month MD in KW (3 decimal)
+		lcd_put_icon(P1);
+		lcd_put_num(2, 4, MD_THOUSANDTHS(kwmd_val)); // X.XXX - digits 2-5
 		KW_Icon;
 		lcd_put_icon(T12);
 		break;
 
-	case MD_TIME:					   // MD Time
-		lcd_put_num(5, 2, KWMD_DT[7]); // sec
-		lcd_put_num(3, 2, KWMD_DT[6]); // min
-		lcd_put_num(1, 2, KWMD_DT[5]); // hr
-		lcd_put_icon(P4);
-		lcd_put_icon(T7);
-		lcd_put_icon(T12);
+	case DISP_MD_KVA: // 5. Current month MD in KVA (3 decimal)
+		lcd_put_icon(P1);
+		lcd_put_num(2, 4, MD_THOUSANDTHS(kvamd_val)); // X.XXX - digits 2-5, mirrors DISP_MD
+		KVA_Icon;
+		lcd_put_icon(T12); // "MD" icon (shared with the KW-MD screen)
 		break;
 
-	case MD_DATE: // MD Date
-		MD_Year = (KWMD_DT[0] << 8 | KWMD_DT[1]) % 2000;
-		lcd_put_num(5, 2, MD_Year);	   // Year
-		lcd_put_num(3, 2, KWMD_DT[2]); // Month
-		lcd_put_num(1, 2, KWMD_DT[3]); // Date
-		lcd_put_icon(P4);
-		lcd_put_icon(T6);
-		lcd_put_icon(T12);
+	case DISP_IL_KW: // 6. Instant Load in KW (3 decimal)
+		lcd_put_icon(P1);
+		lcd_put_num(2, 4, inst_kw); // real-time AFE power reading, X.XXX - digits 2-5
+		KW_Icon;
+		lcd_put_char(8, 'L');
+		lcd_put_icon(T19);
 		break;
 
-	default:
-		lcd_put_num(5, 2, YEAR);  // Year
-		lcd_put_num(3, 2, MONTH); // Month
-		lcd_put_num(1, 2, DATE);  // Date
-		lcd_put_icon(P4);
-		lcd_put_icon(T6);
+	case DISP_IL_KVA: // 7. Instant Load in KVA (3 decimal)
+		lcd_put_icon(P1);
+		lcd_put_num(2, 4, inst_kva); // real-time AFE apparent-power reading, X.XXX - digits 2-5
+		KVA_Icon;
+		lcd_put_char(8, 'L');
+		lcd_put_icon(T19);
+		break;
+
+	case DISP_PM_KWH: // 8. Previous month KWh (5+1, H1, Bill)
+		PB_LoadBillHistory(1);
+		lcd_put_num(1, 6, ENERGY_TENTHS(stBilling_Profile.Cumm_Energy_KWh)); // (5+1), digits 1-6
+		KWh_Icon;
+		lcd_put_char(7, 'H');
+		lcd_put_num(8, 1, 1);
+		lcd_put_icon(T1);
+		lcd_put_icon(T13);
+		break;
+
+	case DISP_PM_KVAH: // 9. Previous month KVAh (5+1, H1, Bill)
+		PB_LoadBillHistory(1);
+		lcd_put_num(1, 6, ENERGY_TENTHS(stBilling_Profile.Cumm_Energy_KVAh)); // (5+1), digits 1-6
+		KVAh_Icon;
+		lcd_put_char(7, 'H');
+		lcd_put_num(8, 1, 1);
+		lcd_put_icon(T1);
+		lcd_put_icon(T13); // BP
+		break;
+
+	case DISP_PM_MD_KW: // 10. Previous month MD in KW (3 decimal, H1, Bill)
+		PB_LoadBillHistory(1);
+		lcd_put_icon(P1);
+		lcd_put_num(2, 4, MD_THOUSANDTHS(stBilling_Profile.MD_KW)); // X.XXX - digits 2-5
+		KW_Icon;
+		lcd_put_icon(T12); // "MD" icon
+		lcd_put_icon(T13); // BP
+		lcd_put_char(7, 'H');
+		lcd_put_num(8, 1, 1);
+		break;
+
+	case DISP_PM_MD_KVA: // 11. Previous month MD in KVA (3 decimal, H1, Bill)
+		PB_LoadBillHistory(1);
+		lcd_put_icon(P1);
+		lcd_put_num(2, 4, MD_THOUSANDTHS(stBilling_Profile.MD_KVA)); // X.XXX - digits 2-5
+		KVA_Icon;
+		lcd_put_icon(T12);
+		lcd_put_icon(T13); // BP
+		lcd_put_char(7, 'H');
+		lcd_put_num(8, 1, 1);
+		break;
+
+	case DISP_PM_ONHR: // 12. Previous month power-on hours (H1, Bill)
+		PB_LoadBillHistory(1);
+		lcd_put_num(3, 4, stBilling_Profile.Power_On_Time / 60); // stored in minutes -> hours, digits 3-6
+		lcd_put_flash_str(1, test_str[27]);						 // "ON" tag in the 2 spare leading digits (1-2)
+		lcd_put_char(7, 'H');
+		lcd_put_num(8, 1, 1);
+		lcd_put_icon(T13); // BP
+		lcd_put_icon(T17); // h
+		break;
+
+	default: // shouldn't be reached - the wrap check above keeps LCD_DisplayParm < DISP_AUTO_TOTAL_SCREENS
 		LCD_DisplayParm = 0;
+		s_auto_banner_done = 0;
 		break;
 	}
 
@@ -377,141 +429,327 @@ void TaskAutoScroll(void)
 	//	lcd_put_icon(T19);
 	//	lcd_put_num(8,1,(LCD_DisplayParm)%10);
 
-	if (PowerOnSec > 3) // show after 3 secs
+	if (PowerOnSec > 1) // show after 1 secs
 		TamperIcons();
 
 	Put_Data_On_LCD(); // Lcd clear and seg writing is done here
 }
 
 uint8_t PBTempChar;
+
+/* Avoids re-reading the same EEPROM billing history entry on every 1 s tick
+ * while a history screen is held (each screen is shown for 10 ticks). */
+static void PB_LoadBillHistory(uint8_t idx)
+{
+	static uint8_t s_bill_idx_loaded = 0xFF;
+	if (s_bill_idx_loaded != idx)
+	{
+		get_bill_data(idx);
+		s_bill_idx_loaded = idx;
+	}
+}
+
+/* Shows one MD (KW or KVA) history sub-screen: value, then time, then date.
+ * is_kva selects which billing-profile pair to render; sub selects
+ * 0=value,1=time,2=date. hist_idx (1-3) drives the "Hx" tag and the
+ * underlying get_bill_data() fetch.
+ * IMPORTANT: stBilling_Profile.MD_KW/MD_KVA (and their _DT arrays) are read
+ * from *inside* this function, strictly after PB_LoadBillHistory(hist_idx)
+ * has refreshed them. Do NOT go back to passing them in as arguments - a
+ * caller like PB_ShowMDHistory(2, 0, stBilling_Profile.MD_KW, ...) would
+ * evaluate stBilling_Profile.MD_KW at the call site, i.e. BEFORE the
+ * refresh below runs, so the first render of a new history screen would
+ * show the previous screen's stale value for one tick. */
+static void PB_ShowMDHistory(uint8_t hist_idx, uint8_t sub, uint8_t is_kva)
+{
+	uint16_t md_val;
+	const uint8_t *md_dt;
+
+	PB_LoadBillHistory(hist_idx);
+
+	md_val = is_kva ? stBilling_Profile.MD_KVA : stBilling_Profile.MD_KW;
+	md_dt = is_kva ? stBilling_Profile.MD_KVA_DT : stBilling_Profile.MD_KW_DT;
+
+	switch (sub)
+	{
+	case 0: // value
+		lcd_put_icon(P1);
+		lcd_put_num(2, 4, MD_THOUSANDTHS(md_val)); // X.XXX - digits 2-5
+		if (is_kva)
+		{
+			KVA_Icon;
+		}
+		else
+		{
+			KW_Icon;
+		}
+		lcd_put_icon(T12); // "MD" icon
+		lcd_put_icon(T13); // BP
+		lcd_put_char(7, 'H');
+		lcd_put_num(8, 1, hist_idx);
+		break;
+	case 1: // date
+		MD_Year = (md_dt[0] << 8 | md_dt[1]) % 2000;
+		lcd_put_num(5, 2, MD_Year);
+		lcd_put_num(3, 2, md_dt[2]); // month
+		lcd_put_num(1, 2, md_dt[3]); // date
+		lcd_put_icon(P4);
+		lcd_put_icon(T6);
+		lcd_put_icon(T12);
+		lcd_put_icon(T13); // BP
+		lcd_put_char(7, 'H');
+		lcd_put_num(8, 1, hist_idx);
+		break;
+		break;
+	case 2:							 // time
+		lcd_put_num(5, 2, md_dt[7]); // sec
+		lcd_put_num(3, 2, md_dt[6]); // min
+		lcd_put_num(1, 2, md_dt[5]); // hr
+		lcd_put_icon(P4);
+		lcd_put_icon(T7);
+		lcd_put_icon(T12);
+		lcd_put_icon(T13); // BP
+		lcd_put_char(7, 'H');
+		lcd_put_num(8, 1, hist_idx);
+	}
+}
+
+/* Push Button Mode: full auto-scrolling sequence, one screen per
+ * LCD_PushButton_Parm value (see enum PBDispSeq). TaskAutoScroll() holds
+ * each screen for 10 s and stops after LCD_PushButton_Parm reaches
+ * PB_TOTAL_SCREENS - i.e. one full cycle - per the display spec. */
 void PushButtonDisplay(void)
 {
-#if 1
+	LCD->MODE_b.on = 0; // make sure the segment-test screen isn't left on
 
-	if (LCD_PushButton_Parm > 0)
-		PBTempChar = LCD_PushButton_Parm - 1;
-	//		lcd_clear();
-
-	// LCD_DisplayParm=DISP_EE_TEST;
-	switch (PBTempChar)
+	switch (LCD_PushButton_Parm)
 	{
-	case DISP_V: // Voltage
+	case PB_SEG_CHECK: // LCD segment check
+		LCD->MODE_b.on = 1;
+		break;
 
+	case PB_DATE: // Real date
+		lcd_put_num(5, 2, YEAR);
+		lcd_put_num(3, 2, MONTH);
+		lcd_put_num(1, 2, DATE);
+		lcd_put_icon(P4);
+		lcd_put_icon(T6);
+		break;
+
+	case PB_TIME: // Real time
+		lcd_put_num(5, 2, SEC);
+		lcd_put_num(3, 2, MIN);
+		lcd_put_num(1, 2, HOUR);
+		lcd_put_icon(P4);
+		lcd_put_icon(T7);
+		break;
+
+	case PB_SERIAL_NO:				 // Serial number, tagged "ID" in the spare digits (same layout as the H1-H6 history tag)
+		lcd_put_num(1, 7, meter_no); // 7 digits, digits 1-7
+		lcd_put_char(8, 'D');
+		lcd_put_icon(T19);
+		break;
+
+	case PB_KWH: // KWh (6+1)
+		lcd_put_icon(P3);
+		lcd_put_num(1, 7, ENERGY_TENTHS(load_val[0]));
+		KWh_Icon;
+		break;
+
+	case PB_KVAH: // KVAh (6+1)
+		lcd_put_icon(P3);
+		lcd_put_num(1, 7, ENERGY_TENTHS(load_val[1]));
+		KVAh_Icon;
+		break;
+
+	/* --- Previous months KWh, H1-H6 (5+1, Bill) --- */
+	case PB_H1_KWH:
+	case PB_H2_KWH:
+	case PB_H3_KWH:
+	case PB_H4_KWH:
+	case PB_H5_KWH:
+	case PB_H6_KWH:
+	{
+		uint8_t hidx = (LCD_PushButton_Parm - PB_H1_KWH) + 1; // 1..6
+		PB_LoadBillHistory(hidx);
+		lcd_put_num(1, 6, ENERGY_TENTHS(stBilling_Profile.Cumm_Energy_KWh));
+		KWh_Icon;
+		lcd_put_char(7, 'H');
+		lcd_put_num(8, 1, hidx);
+		lcd_put_icon(T1);
+		lcd_put_icon(T13);
+		break;
+	}
+
+	/* --- Previous months MD in KW, H1-H3, each with value/time/date --- */
+	case PB_H1_MD_KW:
+		PB_ShowMDHistory(1, 0, 0);
+		break;
+	case PB_H1_MD_KW_TIME:
+		PB_ShowMDHistory(1, 1, 0);
+		break;
+	case PB_H1_MD_KW_DATE:
+		PB_ShowMDHistory(1, 2, 0);
+		break;
+	case PB_H2_MD_KW:
+		PB_ShowMDHistory(2, 0, 0);
+		break;
+	case PB_H2_MD_KW_TIME:
+		PB_ShowMDHistory(2, 1, 0);
+		break;
+	case PB_H2_MD_KW_DATE:
+		PB_ShowMDHistory(2, 2, 0);
+		break;
+	case PB_H3_MD_KW:
+		PB_ShowMDHistory(3, 0, 0);
+		break;
+	case PB_H3_MD_KW_TIME:
+		PB_ShowMDHistory(3, 1, 0);
+		break;
+	case PB_H3_MD_KW_DATE:
+		PB_ShowMDHistory(3, 2, 0);
+		break;
+
+	/* --- Previous months KVAh, H1-H6 (5+1, Bill) --- */
+	case PB_H1_KVAH:
+	case PB_H2_KVAH:
+	case PB_H3_KVAH:
+	case PB_H4_KVAH:
+	case PB_H5_KVAH:
+	case PB_H6_KVAH:
+	{
+		uint8_t hidx = (LCD_PushButton_Parm - PB_H1_KVAH) + 1; // 1..6
+		PB_LoadBillHistory(hidx);
+		lcd_put_num(1, 6, ENERGY_TENTHS(stBilling_Profile.Cumm_Energy_KVAh));
+		KVAh_Icon;
+		lcd_put_char(7, 'H');
+		lcd_put_num(8, 1, hidx);
+		lcd_put_icon(T1);
+		lcd_put_icon(T13);
+		break;
+	}
+
+	/* --- Previous months MD in KVA, H1-H3, each with value/time/date --- */
+	case PB_H1_MD_KVA:
+		PB_ShowMDHistory(1, 0, 1);
+		break;
+	case PB_H1_MD_KVA_TIME:
+		PB_ShowMDHistory(1, 1, 1);
+		break;
+	case PB_H1_MD_KVA_DATE:
+		PB_ShowMDHistory(1, 2, 1);
+		break;
+	case PB_H2_MD_KVA:
+		PB_ShowMDHistory(2, 0, 1);
+		break;
+	case PB_H2_MD_KVA_TIME:
+		PB_ShowMDHistory(2, 1, 1);
+		break;
+	case PB_H2_MD_KVA_DATE:
+		PB_ShowMDHistory(2, 2, 1);
+		break;
+	case PB_H3_MD_KVA:
+		PB_ShowMDHistory(3, 0, 1);
+		break;
+	case PB_H3_MD_KVA_TIME:
+		PB_ShowMDHistory(3, 1, 1);
+		break;
+	case PB_H3_MD_KVA_DATE:
+		PB_ShowMDHistory(3, 2, 1);
+		break;
+
+	case PB_HIRES_KWH: // High resolution KWh (2+4)
+		// Same accumulator as PB_KWH, re-windowed to show 2 integer + 4
+		// fractional digits instead of 6+1. TODO(bench): confirm this
+		// matches the meter's actual accuracy class / resolution spec -
+		// the underlying register only carries 1 decimal of real precision.
+		lcd_put_num(1, 6, load_val[0] % 1000000UL);
+		lcd_put_icon(P1);
+		KWh_Icon;
+		lcd_put_char(7, 'H');
+		break;
+
+	case PB_HIRES_KVAH: // High resolution KVAh (2+4)
+		lcd_put_num(1, 6, load_val[1] % 1000000UL);
+		lcd_put_icon(P1);
+		KVAh_Icon;
+		lcd_put_char(7, 'H');
+		break;
+
+	case PB_IL_KW: // Instant Load in KW (3 decimal)
+		lcd_put_icon(P1);
+		lcd_put_num(2, 4, inst_kw); // real-time AFE power reading, X.XXX - digits 2-5
+		KW_Icon;
+		lcd_put_char(8, 'L');
+		lcd_put_icon(T19);
+		break;
+
+	case PB_IL_KVA: // Instant Load in KVA (3 decimal)
+		lcd_put_icon(P1);
+		lcd_put_num(2, 4, inst_kva); // real-time AFE apparent-power reading, X.XXX - digits 2-5
+		KVA_Icon;
+		lcd_put_char(8, 'L');
+		lcd_put_icon(T19);
+		break;
+
+	case PB_INST_V: // Instant Voltage
 		if (nmiss_stat == 1)
-			lcd_put_num(3, 4, 2400); //  dec place
+			lcd_put_num(3, 4, 2400);
 		else
-			lcd_put_num(3, 4, inst_voltage); // 1 dec place
-
+			lcd_put_num(3, 4, inst_voltage);
 		V_Icon
 			lcd_put_icon(T1);
 		break;
 
-	case DISP_I_S: // Shunt Current
+	case PB_INST_I: // Phase Current
 		lcd_put_icon(P2);
 		if (inst_phase_current > 8)
-			lcd_put_num(3, 5, inst_phase_current); // 2 dec place
+			lcd_put_num(3, 5, inst_phase_current);
 		else
-			lcd_put_num(3, 5, 0); // 2 dec place
-
-		lcd_put_flash_str(1, test_str[4]);
+			lcd_put_num(3, 5, 0);
+		lcd_put_char(8, 'P'); // "P"
 		A_Icon;
 		break;
 
-	case DISP_I_N: // Neutral Current
+	case PB_INST_IN: // Neutral Current
 		lcd_put_icon(P2);
-
 		if (inst_neutral_current > 7)
-			lcd_put_num(3, 5, inst_neutral_current); // 2 dec place
+			lcd_put_num(3, 5, inst_neutral_current);
 		else
-			lcd_put_num(3, 5, 0); // 2 dec place
-
-		lcd_put_flash_str(1, test_str[5]);
+			lcd_put_num(3, 5, 0);
+		lcd_put_char(8, 'N'); // "N"
 		A_Icon;
 		break;
 
-	case DISP_KW_S: // Shunt Power
-		lcd_put_icon(P2);
-		lcd_put_num(4, 4, inst_kw); //  dec place
-		KW_Icon;
-		break;
-
-	case DISP_KWH: // Active energy
-		lcd_put_icon(T1);
-		lcd_put_num(1, 7, load_val[0]); //  dec place //load_val[0]
-		KWh_Icon;
-		break;
-
-	case DISP_FREQ: // Frequency
-		lcd_put_num(4, 3, inst_freq);
-		lcd_put_icon(T1);
-		lcd_put_flash_str(1, test_str[20]);
-		break;
-
-	case DISP_PF: // pf
+	case PB_INST_PF: // Instant PF
 		lcd_put_icon(P2);
 		lcd_put_num(4, 3, abs(inst_pf));
-		lcd_put_flash_str(1, test_str[0]);
+		lcd_put_flash_str(1, test_str[0]); // "PF"
 		break;
 
-	case DISP_TIME:				 // Current Time
-		lcd_put_num(5, 2, SEC);	 // sec
-		lcd_put_num(3, 2, MIN);	 // min
-		lcd_put_num(1, 2, HOUR); // hr
-		lcd_put_icon(P4);
-		lcd_put_icon(T7);
+	case PB_ONHR:							   // Power-on hours, current month
+		lcd_put_num(3, 4, reset_on_time / 60); // stored in minutes -> hours
+		lcd_put_flash_str(1, test_str[27]);	   // "ON"
+		lcd_put_icon(T17); // h
 		break;
 
-	case DISP_DATE:				  // Current Date
-		lcd_put_num(5, 2, YEAR);  // Year
-		lcd_put_num(3, 2, MONTH); // Month
-		lcd_put_num(1, 2, DATE);  // Date
-		lcd_put_icon(P4);
-		lcd_put_icon(T6);
-		break;
-
-	case DISP_MD: // MD
+	case PB_AVG_PF: // Average PF
 		lcd_put_icon(P2);
-		lcd_put_num(4, 3, kwmd_val); //  dec place
-		KW_Icon;
-		lcd_put_icon(T12);
+		lcd_put_num(4, 3, abs(avg_pf));
+		lcd_put_flash_str(1, test_str[0]); // "PF"
+		lcd_put_icon(T8); // AV
 		break;
 
-	case MD_TIME:					   // MD Time
-		lcd_put_num(5, 2, KWMD_DT[7]); // sec
-		lcd_put_num(3, 2, KWMD_DT[6]); // min
-		lcd_put_num(1, 2, KWMD_DT[5]); // hr
-		lcd_put_icon(P4);
-		lcd_put_icon(T7);
-		lcd_put_icon(T12);
-		break;
-
-	case MD_DATE: // MD Date
-		MD_Year = (KWMD_DT[0] << 8 | KWMD_DT[1]) % 2000;
-		lcd_put_num(5, 2, MD_Year);	   // Year
-		lcd_put_num(3, 2, KWMD_DT[2]); // Month
-		lcd_put_num(1, 2, KWMD_DT[3]); // Date
-		lcd_put_icon(P4);
-		lcd_put_icon(T6);
-		lcd_put_icon(T12);
-		break;
-
-	default:
-		lcd_put_num(5, 2, YEAR);  // Year
-		lcd_put_num(3, 2, MONTH); // Month
-		lcd_put_num(1, 2, DATE);  // Date
-		lcd_put_icon(P4);
-		lcd_put_icon(T6);
+	default: // shouldn't be reached - TaskAutoScroll() stops the cycle at PB_TOTAL_SCREENS
 		PushButtonDisplayFlag = 0;
 		LCD_PushButton_Parm = 0;
-
 		break;
 	}
-	// lcd_put_num(7,2,LCD_PushButton_Parm/4);
-	if (PowerOnSec > 3) // show after 3 secs
+
+	if (LCD_PushButton_Parm != PB_SEG_CHECK && PowerOnSec > 3) // show after 3 secs
 		TamperIcons();
 
 	Put_Data_On_LCD(); // Lcd clear and seg writing is done here
-#endif
 }
 int8_t Display_Complete = 0;
 void PushButtonWakeDisplay(void)
@@ -719,4 +957,117 @@ void CalDisplay(void)
 	else if (CalDisplayVar == CAL)
 		lcd_put_flash_str(1, test_str[19]);
 	Put_Data_On_LCD();
+}
+
+/* ==========================================================================
+ * Battery Mode display (on battery-backup power - see pwrmode.h / bat.h).
+ * Shorter, low-power screen set with both auto-scrolling and manual
+ * (push-button) scrolling, per the display spec:
+ *   KWh, KVAh, current-month MD KW/KVA,
+ *   previous-month (H1) KWh/KVAh/MD KW/MD KVA/power-on hours.
+ * ========================================================================== */
+uint8_t BAT_DisplayParm;
+static uint8_t s_bat_sec_ctr;
+
+static void BatteryModeRender(void)
+{
+	switch (BAT_DisplayParm)
+	{
+	case BAT_KWH: // KWh (6+1)
+		lcd_put_icon(P3);
+		lcd_put_num(1, 7, ENERGY_TENTHS(load_val[0]));
+		KWh_Icon;
+		break;
+
+	case BAT_KVAH: // KVAh (6+1)
+		lcd_put_icon(P3);
+		lcd_put_num(1, 7, ENERGY_TENTHS(load_val[1]));
+		KVAh_Icon;
+		break;
+
+	case BAT_MD_KW: // Current month MD in KW (3 decimal)
+		lcd_put_icon(P2);
+		lcd_put_num(4, 4, MD_THOUSANDTHS(kwmd_val));
+		KW_Icon;
+		lcd_put_icon(T12);
+		break;
+
+	case BAT_MD_KVA: // Current month MD in KVA (3 decimal)
+		lcd_put_icon(P2);
+		lcd_put_num(4, 4, MD_THOUSANDTHS(kvamd_val));
+		KVA_Icon;
+		lcd_put_icon(T12);
+		break;
+
+	case BAT_PM_KWH: // Previous month KWh (5+1, H1, Bill)
+		PB_LoadBillHistory(1);
+		lcd_put_num(2, 6, ENERGY_TENTHS(stBilling_Profile.Cumm_Energy_KWh));
+		KWh_Icon;
+		lcd_put_char(1, 'H');
+		lcd_put_num(8, 1, 1);
+		break;
+
+	case BAT_PM_KVAH: // Previous month KVAh (5+1, H1, Bill)
+		PB_LoadBillHistory(1);
+		lcd_put_num(2, 6, ENERGY_TENTHS(stBilling_Profile.Cumm_Energy_KVAh));
+		KVAh_Icon;
+		lcd_put_char(1, 'H');
+		lcd_put_num(8, 1, 1);
+		break;
+
+	case BAT_PM_MD_KW: // Previous month MD in KW (3 decimal, H1, Bill)
+		PB_LoadBillHistory(1);
+		lcd_put_icon(P2);
+		lcd_put_num(4, 4, MD_THOUSANDTHS(stBilling_Profile.MD_KW));
+		KW_Icon;
+		lcd_put_icon(T12);
+		lcd_put_char(1, 'H');
+		lcd_put_num(2, 1, 1);
+		break;
+
+	case BAT_PM_MD_KVA: // Previous month MD in KVa (3 decimal, H1, Bill)
+		PB_LoadBillHistory(1);
+		lcd_put_icon(P2);
+		lcd_put_num(4, 4, MD_THOUSANDTHS(stBilling_Profile.MD_KVA));
+		KVA_Icon;
+		lcd_put_icon(T12);
+		lcd_put_char(1, 'H');
+		lcd_put_num(2, 1, 1);
+		break;
+
+	case BAT_PM_ONHR: // Previous month power-on hours (P, on, Bill)
+		PB_LoadBillHistory(1);
+		lcd_put_num(4, 4, stBilling_Profile.Power_On_Time / 60); // minutes -> hours
+		lcd_put_flash_str(1, test_str[27]);						 // "PON"
+		break;
+
+	default:
+		BAT_DisplayParm = 0;
+		break;
+	}
+
+	Put_Data_On_LCD();
+}
+
+/* Call once per second while running on battery backup to auto-scroll
+ * through the battery-mode screen set. */
+void BatteryModeTask(void)
+{
+	if (++s_bat_sec_ctr >= BATTERY_DISP_INTERVAL_SEC)
+	{
+		s_bat_sec_ctr = 0;
+		if (++BAT_DisplayParm >= BAT_TOTAL_SCREENS)
+			BAT_DisplayParm = 0; // wrap and keep auto-scrolling (battery mode has no "one cycle" timeout in the spec)
+	}
+	BatteryModeRender();
+}
+
+/* Call on a push-button press while on battery backup for manual scrolling.
+ * Resets the auto-scroll timer so the screen doesn't jump again right away. */
+void BatteryModeManualNext(void)
+{
+	if (++BAT_DisplayParm >= BAT_TOTAL_SCREENS)
+		BAT_DisplayParm = 0;
+	s_bat_sec_ctr = 0;
+	BatteryModeRender();
 }

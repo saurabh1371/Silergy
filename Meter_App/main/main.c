@@ -548,7 +548,7 @@ int main(void)
 	init_tod();
 
 	if (WakeFromReason == WAKE_FROM_MAINS)
-	{	
+	{
 		read_time_date();
 		TaskAutoScroll();
 	}
@@ -906,7 +906,9 @@ void Timer1_Interrupt(void)
 		if (SwitchLastState != SwitchCurrentState)
 			if (SwitchCurrentState)
 			{
-				LCD_PushButton_Parm++;
+				if (PushButtonDisplayFlag == 1)
+					LCD_PushButton_Parm++; // already in Push Mode - manual advance to next screen
+				// else: first press of this cycle - enter Push Mode at screen 0 (LCD segment check)
 				NoOfSeconds = 0;
 				PushButtonDisplayFlag = 1;
 				PushButtonTimeOut = 0;
