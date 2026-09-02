@@ -366,12 +366,6 @@ void WakePushButtonFunction(void)
 				lcd_put_flash_str(1, "Conn");
 				Put_Data_On_LCD();
 
-				for (i = 0; i < 2000; i++)
-				{
-					delay(DELAY_MS(1));
-					wd_reset();
-				}
-
 				return;
 			}
 		}
@@ -677,11 +671,12 @@ int main(void)
 						{
 							uint8_t dload_seen = 0;
 							uint8_t dload_shown = 0;
-							// Immediately render the first battery parameter so no date/time shows
-							BAT_DisplayParm = 0;
-							BatteryModeRender();
 							DLMS_HDLC_ResetSession();
-							while (Communication_Enable_Counter < 10)
+
+							lcd_clear();
+							lcd_put_flash_str(1, "Conn"); // idle state
+							Put_Data_On_LCD();
+							while (Communication_Enable_Counter < 20)
 							{
 								DLMS_HDLC_ProcessFrame();
 								serial_comm();
