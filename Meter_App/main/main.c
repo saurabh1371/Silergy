@@ -83,6 +83,7 @@ uint8_t CalDisplayVar = 0;
 static void main_mission_mode(void);	// Do mission mode.
 static void main_timing_tasks(void);	// Do shared timing tasks.
 static void eeprom_vcc_enable(bool en); // Enable/disable power supply EEPROM_VCC.
+static uint8_t dload_lcd_shown = 0;		// tracks whether "dload" is currently painted
 
 unsigned char delay_sec;
 // struct tm tmT; // time structure.
@@ -674,18 +675,37 @@ int main(void)
 						//*****************
 						if (PushButtonCommMode == 1)
 						{
+							uint8_t dload_seen = 0;
+							uint8_t dload_shown = 0;
 							// Immediately render the first battery parameter so no date/time shows
 							BAT_DisplayParm = 0;
 							BatteryModeRender();
-
+							DLMS_HDLC_ResetSession();
 							while (Communication_Enable_Counter < 10)
 							{
+								DLMS_HDLC_ProcessFrame();
+								serial_comm();
+								if (Dlms_Comm_Active)
+								{
+									dload_seen = 1;
+									if (!dload_shown)
+									{
+										lcd_clear();
+										lcd_put_flash_str(1, "dload");
+										Put_Data_On_LCD();
+										dload_shown = 1;
+									}
+								}
+								else if (dload_seen)
+								{
+									break; // session ended (DISC ya 3-sec silence) -> turant stop
+								}
 								_1_SecFunction();
-								// dlms_server_process(hdlc_handle);
 								if (!(SYS->STAT_b.v3a_nok)) // if power comes in between, reset meter
 									break;
 							}
-
+							lcd_clear(); // LCD off - no auto-scroll parameter after this
+							Put_Data_On_LCD();
 							SYS->MOD_CNTL |= BIT31;
 							while (1)
 								;
@@ -716,8 +736,24 @@ int main(void)
 
 			/* --- THE DLMS BRAIN --- */
 			DLMS_HDLC_ProcessFrame();
-
 			serial_comm();
+
+			if (Dlms_Comm_Active)
+			{
+				if (!dload_lcd_shown) // <-- sirf rising edge pe ek baar likho
+				{
+					lcd_clear();
+					lcd_put_flash_str(1, "dload");
+					Put_Data_On_LCD();
+					dload_lcd_shown = 1;
+				}
+				SerialDisplayTimeOut = 1;
+			}
+			else if (dload_lcd_shown)
+			{
+				dload_lcd_shown = 0; // falling edge -> auto-scroll wapas le lega
+			}
+
 			_1_SecFunction();
 			// ser2_tx_ch(0xaa);
 
@@ -1004,7 +1040,8 @@ void _1_SecFunction(void)
 		if (PushButtonCommMode == 1)
 		{
 			Communication_Enable_Counter++;
-			BatteryModeTask(); // Shows the battery mode parameters while communicating
+			// if (!Dlms_Comm_Active) // idle wait screen only before HHU actually starts talking
+			// 	BatteryModeTask();
 			return;
 		}
 

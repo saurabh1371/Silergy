@@ -12,6 +12,12 @@
 extern unsigned char dlms_rx_process_ready;
 extern unsigned char dlms_frame_active; /* Set when a DLMS frame (0x7E...0x7E) is in progress */
 
+/* Set on DLMS_HDLC_EVENT_VALID_FRAME, cleared on DLMS_HDLC_EVENT_DISCONNECT
+ * (see DLMS_HAL_OnFrameActivity() in dlms_hdlc.c). Stays 1 for the whole
+ * span of an active DLMS session/download - meant for the meter's display
+ * code to show a "dload" indicator instead of its normal scroll. */
+extern volatile unsigned char Dlms_Comm_Active;
+
 /* --- EXTERN DECLARATIONS FOR DYNAMIC BLOCK SIZING --- */
 extern unsigned int dlms_neg_max_info_tx;
 extern unsigned int dlms_neg_max_info_rx;
@@ -70,5 +76,5 @@ void DLMS_COSEM_ProcessGetNextBlock(unsigned char client, unsigned char server, 
 
 void DLMS_COSEM_ProcessSetRequest(unsigned char client, unsigned char server, unsigned char invoke, unsigned int class_id, unsigned char *obis, unsigned char attr, unsigned char *data);
 void DLMS_COSEM_ProcessActionRequest(unsigned char client, unsigned char server, unsigned char invoke, unsigned int class_id, unsigned char *obis, unsigned char method_id);
-
+void DLMS_HDLC_ResetSession(void); /* clears MAC/session state - call before a fresh comm window */
 #endif /* DLMS_STACK_H */

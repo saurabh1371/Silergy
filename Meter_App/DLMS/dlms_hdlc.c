@@ -39,10 +39,23 @@ unsigned int dlms_neg_max_info_rx = 128; /* what WE will accept from client */
  * just needs one DLMS_HDLC_Tick() call per second from the host. */
 static unsigned char dlms_inactivity_ctr = 0;
 
+volatile unsigned char Dlms_Comm_Active = 0;
+static unsigned char dlms_display_idle_ctr = 0;
+
 void DLMS_HDLC_Tick(void)
 {
     if (dlms_inactivity_ctr < 0xFF)
         dlms_inactivity_ctr++;
+
+    /* Client DISC bheje bina gayab ho jaye (BCS ka case) - display flag
+     * ko khud clear karo agar 3 second se koi frame nahi aaya */
+    if (Dlms_Comm_Active)
+    {
+        if (dlms_display_idle_ctr < 0xFF)
+            dlms_display_idle_ctr++;
+        if (dlms_display_idle_ctr >= 3) // ~3 sec silence -> treat as done
+            Dlms_Comm_Active = 0;
+    }
 }
 
 const unsigned int fcstab[256] = {
@@ -751,5 +764,23 @@ void HAL_UART_SendByte(unsigned char data)
 
 void DLMS_HAL_OnFrameActivity(DLMS_HDLC_Event_t event)
 {
-    (void)event; /* Hook for backlight or wake-timers on frame reception */
+    if (event == DLMS_HDLC_EVENT_VALID_FRAME)
+    {
+        Dlms_Comm_Active = 1;
+        dlms_display_idle_ctr = 0; // reset on every real frame
+    }
+    else if (event == DLMS_HDLC_EVENT_DISCONNECT)
+    {
+        Dlms_Comm_Active = 0;
+    }
+}
+
+void DLMS_HDLC_ResetSession(void)
+{
+    dlms_frame_active = 0;
+    dlms_rx_process_ready = 0;
+    dlms_hdlc_connected = 0;
+    dlms_inactivity_ctr = 0;
+    Dlms_Comm_Active = 0;
+    dlms_display_idle_ctr = 0;
 }
