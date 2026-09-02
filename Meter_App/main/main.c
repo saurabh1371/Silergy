@@ -326,30 +326,25 @@ void WakePushButtonFunction(void)
 	uint32_t i, j;
 	uint32_t sleep_timeout;
 
-	// 1. Boost CPU clock to 851 kHz
+	// 1. Boost CPU clock to 851 kHz for instant response
 	sys_set_mpuclk(3, 0);
 
-	nvram_enable();
-	nvram_read((uint8_t *)&BAT_DisplayParm, 1, PCB_NVRAM_ADR_NVM + sizeof(Nvm_t));
-	nvram_disable();
+	// 2. Force the display to ALWAYS start at KWh (Index 0).
+	// Setting to 0xFF (255) ensures that the first call to BatteryModeManualNext()
+	// rolls it over to exactly 0 (KWh) before rendering.
+	BAT_DisplayParm = 0xFF;
 
 	rtc_read(&global.reg.tm);
 	eeprom_vcc_enable(true);
 	PushButton_init_eeprom();
-
 	lcd_init_no_clear();
 
-	// 2. Keep the meter awake to allow rapid scrolling
+	// 3. Render the very first screen (KWh) instantly
+	BatteryModeManualNext();
+
 	while (1)
 	{
-		// Render the screen instantly
-		BatteryModeManualNext();
-
-		nvram_enable();
-		nvram_write(PCB_NVRAM_ADR_NVM + sizeof(Nvm_t), (uint8_t *)&BAT_DisplayParm, 1);
-		nvram_disable();
-
-		// 3. Wait for the user to RELEASE the button
+		// 4. Wait for the user to RELEASE the button (if held)
 		j = 0;
 		gpio_dir_in(PCB_BUTTON_SEG);
 		while (gpio_get_state(PCB_BUTTON_SEG))
@@ -368,7 +363,7 @@ void WakePushButtonFunction(void)
 			}
 		}
 
-		// 4. Button released! Wait up to 10 seconds for ANOTHER rapid press.
+		// 5. Button released! Wait for a manual press OR a 10s auto-scroll timeout
 		sleep_timeout = 0;
 		while (!gpio_get_state(PCB_BUTTON_SEG))
 		{
@@ -378,26 +373,36 @@ void WakePushButtonFunction(void)
 			wd_reset();
 			sleep_timeout++;
 
-			// If ~10 seconds pass with no press, go back to deep sleep
+			// 10 seconds elapsed -> Auto-Advance to next parameter
 			if (sleep_timeout > 2000)
 			{
-				SetWakeSources();
-				while (true)
+				BatteryModeManualNext();
+
+				// If it wrapped back around to 0 (KWh), we have shown the last screen.
+				// Go to deep sleep.
+				if (BAT_DisplayParm == 0)
 				{
-					SYS->MOD_CNTL = 3; // Sleep
-					delay(DELAY_MS(1));
+					SetWakeSources();
+					while (true)
+					{
+						SYS->MOD_CNTL = 3; // Sleep
+						delay(DELAY_MS(1));
+					}
 				}
+
+				// Reset the timeout to hold the newly auto-scrolled screen for 10s
+				sleep_timeout = 0;
 			}
 		}
 
-		// 5. If we reach here, the button was pressed again rapidly!
-		// Apply a small ~25ms hardware debounce so a single tap doesn't skip screens.
+		// 6. If we reach here, the user manually PRESSED the button again!
 		for (i = 0; i < 5000; i++)
 		{
 			wd_reset();
-		}
+		} // Hardware debounce
 
-		// The while(1) loop restarts and changes the screen instantly.
+		// Advance the screen manually and loop back to wait for release
+		BatteryModeManualNext();
 	}
 }
 
