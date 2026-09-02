@@ -330,8 +330,6 @@ void WakePushButtonFunction(void)
 	sys_set_mpuclk(3, 0);
 
 	// 2. Force the display to ALWAYS start at KWh (Index 0).
-	// Setting to 0xFF (255) ensures that the first call to BatteryModeManualNext()
-	// rolls it over to exactly 0 (KWh) before rendering.
 	BAT_DisplayParm = 0xFF;
 
 	rtc_read(&global.reg.tm);
@@ -355,10 +353,15 @@ void WakePushButtonFunction(void)
 			wd_reset();
 			j++;
 
-			// 5-second hold triggers Communication Mode
-			if (j > 1000)
+			// 5-second hold triggers Communication Mode (500 loops at 851 kHz)
+			if (j > 500)
 			{
 				PushButtonCommMode = 1;
+
+				// Print "Conn" to the LCD and render it instantly
+				lcd_put_flash_str(1, "Conn");
+				Put_Data_On_LCD();
+
 				return;
 			}
 		}
@@ -373,8 +376,8 @@ void WakePushButtonFunction(void)
 			wd_reset();
 			sleep_timeout++;
 
-			// 10 seconds elapsed -> Auto-Advance to next parameter
-			if (sleep_timeout > 2000)
+			// 10 seconds elapsed -> Auto-Advance to next parameter (1000 loops)
+			if (sleep_timeout > 1000)
 			{
 				BatteryModeManualNext();
 
