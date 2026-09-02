@@ -226,6 +226,16 @@ void lcd_init_1(void)
 	LCD->CNTL = 0x00000004; // LCD->MODE, LCD DAC Bit 6 is set. So, lcd voltage will be (2.65V + 2.65V * 4/31)=2.9919V
 	lcd_clear();
 }
+
+void lcd_init_no_clear(void)
+{
+    // Initializes the LCD registers without triggering a hardware blank/reset
+    LCD->MAPL = LCD_MAPL_DEF;
+    LCD->MAPH = LCD_MAPH_DEF;
+    LCD->MODE = LCD_MODE_DEF;
+    LCD->CNTL = 0x00000004; 
+}
+
 uint8_t LCD_PushButton_Parm, PushButtonTimeOut, PushButtonDisplayFlag;
 uint32_t EEPROM_Test = 4567, EEPROM_Test_1;
 #define EEPROM_Test_Addr 2345
@@ -1147,13 +1157,13 @@ static void BatteryModeRender(void)
 
 		// Battery mode shifts the digits right by one index
 		if (hrs > 999)
-			lcd_put_num(4, 4, hrs);
+			lcd_put_num(3, 4, hrs);
 		else if (hrs > 99)
-			lcd_put_num(5, 3, hrs);
+			lcd_put_num(4, 3, hrs);
 		else if (hrs > 9)
-			lcd_put_num(6, 2, hrs);
+			lcd_put_num(5, 2, hrs);
 		else
-			lcd_put_num(7, 1, hrs);
+			lcd_put_num(6, 1, hrs);
 
 		lcd_put_flash_str(1, test_str[27]); // "ON" tag
 		lcd_put_char(7, 'H');

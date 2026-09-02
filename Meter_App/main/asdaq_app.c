@@ -329,11 +329,47 @@ void default_eeprom(unsigned char stat)
 
 void PushButton_init_eeprom(void)
 {
-
-  unsigned int i;
+  unsigned int i, tmp_int, index;
   unsigned long int location;
+  unsigned char checksum_fail_ctr, prev_checksum_fail_ctr;
 
+  // 1. Fetch KWh (index 0) and KVAh (index 1) with checksum validation
+  for (index = 0; index < 2; index++)
+  {
+    prev_checksum_fail_ctr = 0;
+    while (1)
+    {
+      checksum_fail_ctr = 0;
+      load_index[index] = 0;
+      load_val[index] = 0;
+      for (tmp_int = 0; tmp_int < KWH_ARR; tmp_int++)
+      {
+        scratch = from_eeprom((KWH_LOC + (index * 200) + (tmp_int * 4)), 4);
+        checksum = read_eeprom(KWH_CHKSUM_LOC + (index * 50) + tmp_int);
+        checksum_calc = crc8(scratch);
+        if (checksum_calc == checksum)
+        {
+          if (load_val[index] < scratch)
+          {
+            load_val[index] = scratch;
+            load_index[index] = tmp_int;
+          }
+        }
+        else
+          checksum_fail_ctr++;
+      }
+
+      if (checksum_fail_ctr != prev_checksum_fail_ctr)
+        prev_checksum_fail_ctr = checksum_fail_ctr;
+      else
+        break;
+    }
+  }
+
+  // 2. Fetch MD parameters (KW and KVA)
   mnth_pos = read_eeprom(MNTHPOS_LOC);
+
+  // KW MD
   location = KWMD_LOC + (mnth_pos * 19);
   kwmd_val = from_eeprom(location + 9, 2);
 
@@ -342,6 +378,16 @@ void PushButton_init_eeprom(void)
   get_time_data(kwmd_date, (kwmd_time * 100));
   for (i = 0; i < 12; i++)
     KWMD_DT[i] = tmp_time_string[i];
+
+  // KVA MD
+  location = KVAMD_LOC + (mnth_pos * 11);
+  kvamd_val = from_eeprom(location + 4, 2);
+
+  kvamd_date = from_eeprom(location + 6, 3);
+  kvamd_time = from_eeprom(location + 9, 2);
+  get_time_data(kvamd_date, (kvamd_time * 100));
+  for (i = 0; i < 12; i++)
+    KVAMD_DT[i] = tmp_time_string[i];
 }
 
 void init_eeprom(void)

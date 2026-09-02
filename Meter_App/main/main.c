@@ -46,6 +46,9 @@
 #include "flash.h"
 extern void TaskAutoScroll(void);
 extern void lcd_init_1(void);
+extern uint8_t BAT_DisplayParm;
+extern void BatteryModeManualNext(void);
+extern void lcd_init_no_clear(void);
 void invole_BL(void);
 
 extern void lcd_update(void);
@@ -316,37 +319,88 @@ void Sleep(void)
 	}
 }
 
-uint32_t NVRAM_Push_Buton_Disp; // NVRAM var should be 32bit
-void PushButtonWakeDisplay(void);
+uint32_t NVRAM_Push_Buton_Disp; // Kept for legacy PushButtonCommMode use
+
 void WakePushButtonFunction(void)
 {
+	uint32_t i, j;
+	uint32_t sleep_timeout;
+
+	// 1. Boost CPU clock to 851 kHz
+	sys_set_mpuclk(3, 0);
+
 	nvram_enable();
-	nvram_read((uint8_t *)&NVRAM_Push_Buton_Disp, 1, PCB_NVRAM_ADR_NVM + sizeof(Nvm_t));
-
-	NVRAM_Push_Buton_Disp++;
-
-	if (NVRAM_Push_Buton_Disp > 5) // parameters to display in push button mode
-		NVRAM_Push_Buton_Disp = 1;
-
-	nvram_write(PCB_NVRAM_ADR_NVM + sizeof(Nvm_t), (uint8_t *)&NVRAM_Push_Buton_Disp, 1);
+	nvram_read((uint8_t *)&BAT_DisplayParm, 1, PCB_NVRAM_ADR_NVM + sizeof(Nvm_t));
 	nvram_disable();
 
 	rtc_read(&global.reg.tm);
 	eeprom_vcc_enable(true);
 	PushButton_init_eeprom();
 
-	lcd_init_1();
-	PushButtonWakeDisplay();
-	SetWakeSources();
+	lcd_init_no_clear();
 
-	// Wait for the 32KHz state machine to switch to sleep.
-	while (true)
+	// 2. Keep the meter awake to allow rapid scrolling
+	while (1)
 	{
+		// Render the screen instantly
+		BatteryModeManualNext();
 
-		SYS->MOD_CNTL = 3;	// Sleep
-		delay(DELAY_MS(1)); // Wait for the switch, then retry.
+		nvram_enable();
+		nvram_write(PCB_NVRAM_ADR_NVM + sizeof(Nvm_t), (uint8_t *)&BAT_DisplayParm, 1);
+		nvram_disable();
+
+		// 3. Wait for the user to RELEASE the button
+		j = 0;
+		gpio_dir_in(PCB_BUTTON_SEG);
+		while (gpio_get_state(PCB_BUTTON_SEG))
+		{
+			for (i = 0; i < 1000; i++)
+			{
+			}
+			wd_reset();
+			j++;
+
+			// 5-second hold triggers Communication Mode
+			if (j > 1000)
+			{
+				PushButtonCommMode = 1;
+				return;
+			}
+		}
+
+		// 4. Button released! Wait up to 10 seconds for ANOTHER rapid press.
+		sleep_timeout = 0;
+		while (!gpio_get_state(PCB_BUTTON_SEG))
+		{
+			for (i = 0; i < 1000; i++)
+			{
+			}
+			wd_reset();
+			sleep_timeout++;
+
+			// If ~10 seconds pass with no press, go back to deep sleep
+			if (sleep_timeout > 2000)
+			{
+				SetWakeSources();
+				while (true)
+				{
+					SYS->MOD_CNTL = 3; // Sleep
+					delay(DELAY_MS(1));
+				}
+			}
+		}
+
+		// 5. If we reach here, the button was pressed again rapidly!
+		// Apply a small ~25ms hardware debounce so a single tap doesn't skip screens.
+		for (i = 0; i < 5000; i++)
+		{
+			wd_reset();
+		}
+
+		// The while(1) loop restarts and changes the screen instantly.
 	}
 }
+
 uint8_t PushButtonCommMode = 0;
 void CheckWakeSource(void)
 {
@@ -361,33 +415,16 @@ void CheckWakeSource(void)
 		WakeFromReason = WAKE_FROM_PB;
 		WakeFromPushButtonFlag = 1;
 
-		gpio_dir_in(PCB_BUTTON_SEG);
-		while (gpio_get_state(PCB_BUTTON_SEG))
-		{
-			for (i = 0; i < 1000; i++)
-			{
-			}
-			wd_reset();
-			j++;
-
-			if (j > 100)
-			{
-				PushButtonCommMode = 1;
-				break;
-			}
-		}
-
-		if (PushButtonCommMode == 0) // Jump to brownout mode for communication
-			WakePushButtonFunction();
+		// Skip the delay and go immediately to the handler to render the screen instantly
+		WakePushButtonFunction();
 	}
 	else if (SYS->WAKE_SRC_b.ws_tmr)
 	{
 		WakeFromPushButtonFlag = 0; // donot set timer wake again
-
-		NVRAM_Push_Buton_Disp = 0; // reset pushbuttun variable
+		BAT_DisplayParm = 0;		// reset battery display parameter
 
 		nvram_enable();
-		nvram_write(PCB_NVRAM_ADR_NVM + sizeof(Nvm_t), (uint8_t *)&NVRAM_Push_Buton_Disp, 1);
+		nvram_write(PCB_NVRAM_ADR_NVM + sizeof(Nvm_t), (uint8_t *)&BAT_DisplayParm, 1);
 		nvram_disable();
 		SetWakeSources();
 		Sleep();
@@ -395,6 +432,7 @@ void CheckWakeSource(void)
 	else
 		WakeFromReason = WAKE_FROM_UNKOWN;
 }
+
 uint8_t WakeFromPushButtonFlag = 0;
 void SetWakeSources(void)
 {
@@ -531,13 +569,10 @@ int main(void)
 
 	rtc_read(&global.reg.tm);
 
-	//**************************************clear NVRAM_Push_Buton_Disp during mission and comm mode
+	//**************************************clear BAT_DisplayParm during mission and comm mode
 	nvram_enable();
-	nvram_read((uint8_t *)&NVRAM_Push_Buton_Disp, 1, PCB_NVRAM_ADR_NVM + sizeof(Nvm_t));
-
-	NVRAM_Push_Buton_Disp = 0;
-
-	nvram_write(PCB_NVRAM_ADR_NVM + sizeof(Nvm_t), (uint8_t *)&NVRAM_Push_Buton_Disp, 1);
+	BAT_DisplayParm = 0;
+	nvram_write(PCB_NVRAM_ADR_NVM + sizeof(Nvm_t), (uint8_t *)&BAT_DisplayParm, 1);
 	nvram_disable();
 	//**************************************
 
