@@ -49,6 +49,8 @@ extern void lcd_init_1(void);
 extern uint8_t BAT_DisplayParm;
 extern void BatteryModeManualNext(void);
 extern void lcd_init_no_clear(void);
+extern void BatteryModeTask(void);
+extern void BatteryModeRender(void);
 void invole_BL(void);
 
 extern void lcd_update(void);
@@ -358,9 +360,16 @@ void WakePushButtonFunction(void)
 			{
 				PushButtonCommMode = 1;
 
-				// Print "Conn" to the LCD and render it instantly
+				// Blank screen, show "Conn", and hold it for 2 seconds to be readable
+				lcd_clear();
 				lcd_put_flash_str(1, "Conn");
 				Put_Data_On_LCD();
+
+				for (i = 0; i < 2000; i++)
+				{
+					delay(DELAY_MS(1));
+					wd_reset();
+				}
 
 				return;
 			}
@@ -382,9 +391,9 @@ void WakePushButtonFunction(void)
 				BatteryModeManualNext();
 
 				// If it wrapped back around to 0 (KWh), we have shown the last screen.
-				// Go to deep sleep.
 				if (BAT_DisplayParm == 0)
 				{
+					lcd_clear(); // Turn off the LCD explicitly to avoid freezing on KWh
 					SetWakeSources();
 					while (true)
 					{
@@ -665,7 +674,11 @@ int main(void)
 						//*****************
 						if (PushButtonCommMode == 1)
 						{
-							while ((Display_Complete == 0) || (Communication_Enable_Counter < 10))
+							// Immediately render the first battery parameter so no date/time shows
+							BAT_DisplayParm = 0;
+							BatteryModeRender();
+
+							while (Communication_Enable_Counter < 10)
 							{
 								_1_SecFunction();
 								// dlms_server_process(hdlc_handle);
@@ -991,7 +1004,7 @@ void _1_SecFunction(void)
 		if (PushButtonCommMode == 1)
 		{
 			Communication_Enable_Counter++;
-			PushButtonWakeDisplay();
+			BatteryModeTask(); // Shows the battery mode parameters while communicating
 			return;
 		}
 

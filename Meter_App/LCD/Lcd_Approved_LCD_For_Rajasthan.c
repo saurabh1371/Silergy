@@ -1076,7 +1076,7 @@ void CalDisplay(void)
 uint8_t BAT_DisplayParm;
 static uint8_t s_bat_sec_ctr;
 
-static void BatteryModeRender(void)
+void BatteryModeRender(void)
 {
 	switch (BAT_DisplayParm)
 	{
