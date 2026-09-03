@@ -221,7 +221,9 @@ static void DLMS_Append_Billing_Row(unsigned int *len_ptr, int row)
     else
     {
         /* Historical Months */
-        tmp_date = from_eeprom(loc_kwmd, 3);
+        unsigned long tmp_btime;
+        tmp_date  = from_eeprom(loc_kwmd, 3); /* Date: DDMMYY */
+        tmp_btime = from_eeprom(loc_kwmd + 3, 2); /* Time: HHMM*/
         tmp_kwh = from_eeprom(loc_kwmd + 5, 4);
         tmp_kwmd = from_eeprom(loc_kwmd + 9, 2);
         tmp_pf = read_eeprom(loc_kwmd + 18);
@@ -229,7 +231,7 @@ static void DLMS_Append_Billing_Row(unsigned int *len_ptr, int row)
         tmp_kvamd = from_eeprom(loc_kvamd + 4, 2);
 
         /* 1. Historical Timestamp */
-        if (tmp_date == 0)
+        if (tmp_date == 0 || tmp_date == 0xFFFFFF)
         {
             DLMS_Inject_Dummy_DateTime(&apdu_len);
         }
@@ -238,12 +240,14 @@ static void DLMS_Append_Billing_Row(unsigned int *len_ptr, int row)
             yr = 2000 + (tmp_date % 100);
             mo = (tmp_date / 100) % 100;
             dy = (tmp_date / 10000) % 100;
-            hr = read_eeprom(HIST_BILL_TIME_LOC + (month_idx * 2));
-            mn = read_eeprom(HIST_BILL_TIME_LOC + (month_idx * 2) + 1);
-            if (hr > 23)
-                hr = 0;
-            if (mn > 59)
-                mn = 0;
+
+            /* Decode actual execution time from HHMM */
+            hr = (unsigned char)(tmp_btime / 100);
+            mn = (unsigned char)(tmp_btime % 100);
+
+            if (hr > 23) hr = 0;
+            if (mn > 59) mn = 0;
+
             DLMS_Inject_DateTime(&apdu_len, yr, mo, dy, hr, mn, 0);
         }
 

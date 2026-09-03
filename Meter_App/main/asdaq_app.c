@@ -484,8 +484,13 @@ void init_eeprom(void)
   for (i = 1; i < 12; i++)
     memcpy(execution_billing_date[i], execution_billing_date[0], 12);
 
-  tmp_int = scheduled_bill_day[1];
-  tmp_int = (tmp_int * 256) + scheduled_bill_day[0];
+  tmp_int = ((unsigned int)scheduled_bill_day[0] * 256) + scheduled_bill_day[1];
+
+  if ((tmp_int < 2017) || (tmp_int > 2099)) // year
+  {
+    scheduled_bill_day[0] = 0;
+    scheduled_bill_day[1] = 0;
+  }
 
   if ((tmp_int < 2017) || (tmp_int > 2099)) // year
   {
@@ -2516,7 +2521,7 @@ void history_func(void)
   if (
       (md_reset_b == 1) || (md_reset_b == 2) || (md_reset_b == 3) ||
       (((d_day > bill_day[3]) || ((d_day == bill_day[3]) && (curr_time >= curr_bill_time))) &&
-       ((last_bill_date < curr_bill_date) || ((last_bill_date == curr_bill_date) && (last_bill_time != curr_bill_time)))))
+       (last_bill_date < curr_bill_date)))
   {
 
     reset_on_time = reset_on_time + reset_on_min_ctr;
@@ -2636,11 +2641,20 @@ void history_func(void)
     if (md_reset_b != 1)
     {
       if (md_reset_b == 2)
+      {
         last_bill_date = prev_bill_date;
-      // else if(md_reset_b==3)
-      // last_bill_date=curr_date;
-      else if (md_reset_b != 3)
+      }
+      else if (md_reset_b == 3)
+      {
+        /* Store in YYMMDD format so comparisons with curr_bill_date work correctly */
+        last_bill_date = d_yr;
+        last_bill_date = (last_bill_date * 100) + d_mnth;
+        last_bill_date = (last_bill_date * 100) + d_day; /* Save actual execution date */
+      }
+      else
+      {
         last_bill_date = curr_bill_date;
+      }
 
       if (md_reset_b == 3)
       {
@@ -2648,28 +2662,32 @@ void history_func(void)
         {
           scheduled_bill_day[i] = 0;
           execution_billing_date[0][i] = 0;
-          write_eeprom(SCHEDULED_BILL_DAY_LOC + i, scheduled_bill_day[i]);
+          write_eeprom(SCHEDULED_BILL_DAY_LOC + i, 0);
         }
 
         for (i = 0; i < 2; i++)
         {
           scheduled_bill_time[i] = 0;
           execution_billing_date[0][i + 5] = 0;
-          write_eeprom(SCHEDULED_BILL_TIME_LOC + i, scheduled_bill_time[i]);
+          write_eeprom(SCHEDULED_BILL_TIME_LOC + i, 0);
         }
       }
 
-      // last_bill_day=billing_day;
-      // if(md_reset_b==3)
-      //	last_bill_time=curr_time;
-      // else
-      if (md_reset_b != 3)
+      if (md_reset_b == 3)
+      {
+        last_bill_time = (real_time / 100); /* Save actual execution time (e.g. 1610 for 16:10) */
+      }
+      else
+      {
         last_bill_time = curr_bill_time;
+      }
 
-      // write_eeprom(LAST_BILL_DAY_LOC,last_bill_day);
       to_eeprom(LAST_BILL_TIME_LOC, last_bill_time, 2);
       to_eeprom(LAST_BILL_DATE_LOC, last_bill_date, 3);
-      get_time_data(last_bill_date, ((unsigned long int)last_bill_time * 100));
+
+      /* get_time_data() expects DDMMYY format for its date argument to construct dlms_billing_date */
+      scratch = ((last_bill_date % 100) * 10000) + (((last_bill_date / 100) % 100) * 100) + (last_bill_date / 10000);
+      get_time_data(scratch, ((unsigned long int)last_bill_time * 100));
       memcpy(dlms_billing_date, tmp_time_string, 12);
     }
 

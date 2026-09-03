@@ -369,7 +369,7 @@ static void Read_EventCode_E6(unsigned char attr, unsigned int *apdu_len) /* 0.0
 
 static void Read_BillingTimestamp(unsigned char attr, unsigned int *apdu_len) /* 0.0.0.1.2.255 */
 {
-    unsigned long tmp_md_dt;
+    unsigned long tmp_md_dt, tmp_btime;
     unsigned int h_idx;
     unsigned int yr;
     unsigned char mo, dy, hr, mn;
@@ -380,9 +380,10 @@ static void Read_BillingTimestamp(unsigned char attr, unsigned int *apdu_len) /*
     if (md_reset_cnt > 0)
     {
         h_idx = (mnth_pos == 0) ? (HISTORY_SIZE - 1) : (mnth_pos - 1);
-        tmp_md_dt = from_eeprom(KWMD_LOC + (h_idx * 21), 3);
+        tmp_md_dt = from_eeprom(KWMD_LOC + (h_idx * 19) + 0, 3); /* 19-byte stride */
+        tmp_btime = from_eeprom(KWMD_LOC + (h_idx * 19) + 3, 2); /* Actual HHMM */
 
-        if (tmp_md_dt == 0)
+        if (tmp_md_dt == 0 || tmp_md_dt == 0xFFFFFF)
         {
             DLMS_Inject_Dummy_DateTime(apdu_len);
         }
@@ -392,8 +393,8 @@ static void Read_BillingTimestamp(unsigned char attr, unsigned int *apdu_len) /*
             mo = (tmp_md_dt / 100) % 100;
             dy = (tmp_md_dt / 10000) % 100;
 
-            hr = read_eeprom(HIST_BILL_TIME_LOC + (h_idx * 2));
-            mn = read_eeprom(HIST_BILL_TIME_LOC + (h_idx * 2) + 1);
+            hr = (unsigned char)(tmp_btime / 100);
+            mn = (unsigned char)(tmp_btime % 100);
             if (hr > 23)
                 hr = 0;
             if (mn > 59)
@@ -843,6 +844,10 @@ static void Read_ActivityCalendar(unsigned char attr, unsigned int *apdu_len) /*
     }
 }
 
+/* =========================================================================
+ * CLASS 22 (SINGLE ACTION SCHEDULE) - BILLING SCHEDULE (0.0.15.0.0.255)
+ * ========================================================================= */
+
 static void Read_BillingSchedule(unsigned char attr, unsigned int *apdu_len) /* 0.0.15.0.0.255 */
 {
     if (attr == 2) /* executed_script */
@@ -863,49 +868,238 @@ static void Read_BillingSchedule(unsigned char attr, unsigned int *apdu_len) /* 
     }
     else if (attr == 3) /* type */
     {
-        dlms_apdu_buf[(*apdu_len)++] = 0x16;
+        dlms_apdu_buf[(*apdu_len)++] = 0x16; /* enum */
         dlms_apdu_buf[(*apdu_len)++] = 0x01;
     }
-    else if (attr == 4) /* execution_time */
+    else if (attr == 4) /* execution_time: Array of 1 structure */
     {
-        dlms_apdu_buf[(*apdu_len)++] = 0x01;
-        dlms_apdu_buf[(*apdu_len)++] = 0x01;
-        dlms_apdu_buf[(*apdu_len)++] = 0x02;
-        dlms_apdu_buf[(*apdu_len)++] = 0x02;
+        unsigned int s_year;
+        unsigned char r_day, r_hr, r_mn;
+        unsigned char s_hr, s_mn;
 
-        dlms_apdu_buf[(*apdu_len)++] = 0x09;
-        dlms_apdu_buf[(*apdu_len)++] = 0x04;
-        if (spec_bill_active == 1)
+        dlms_apdu_buf[(*apdu_len)++] = 0x01; /* Array */
+        dlms_apdu_buf[(*apdu_len)++] = 0x01; /* 1 Element (Expected by Gurux Python BCS) */
+        dlms_apdu_buf[(*apdu_len)++] = 0x02; /* Structure */
+        dlms_apdu_buf[(*apdu_len)++] = 0x02; /* 2 Fields: Time, Date */
+
+        s_year = ((unsigned int)scheduled_bill_day[0] << 8) | scheduled_bill_day[1];
+
+        /* Check if a Specific One-Off Date is currently active in the meter */
+        if (s_year >= 2017 && s_year <= 2099 &&
+            scheduled_bill_day[2] >= 1 && scheduled_bill_day[2] <= 12 &&
+            scheduled_bill_day[3] >= 1 && scheduled_bill_day[3] <= 31)
         {
-            dlms_apdu_buf[(*apdu_len)++] = spec_bill_hr;
-            dlms_apdu_buf[(*apdu_len)++] = spec_bill_mn;
+            s_hr = read_eeprom(SCHEDULED_BILL_TIME_LOC + 0);
+            s_mn = read_eeprom(SCHEDULED_BILL_TIME_LOC + 1);
+            if (s_hr > 23)
+                s_hr = scheduled_bill_time[0];
+            if (s_mn > 59)
+                s_mn = scheduled_bill_time[1];
+
+            /* 1. Time: HH:MM:00:00 (Octet-String, 4 bytes) */
+            dlms_apdu_buf[(*apdu_len)++] = 0x09;
+            dlms_apdu_buf[(*apdu_len)++] = 0x04;
+            dlms_apdu_buf[(*apdu_len)++] = s_hr; /* Actual 22 */
+            dlms_apdu_buf[(*apdu_len)++] = s_mn; /* Actual 57 */
+            dlms_apdu_buf[(*apdu_len)++] = 0x00; /* Seconds */
+            dlms_apdu_buf[(*apdu_len)++] = 0x00; /* Hundredths */
+
+            /* 2. Date: YYYY-MM-DD-FF (Octet-String, 5 bytes) */
+            dlms_apdu_buf[(*apdu_len)++] = 0x09;
+            dlms_apdu_buf[(*apdu_len)++] = 0x05;
+            dlms_apdu_buf[(*apdu_len)++] = scheduled_bill_day[0]; /* Year High */
+            dlms_apdu_buf[(*apdu_len)++] = scheduled_bill_day[1]; /* Year Low */
+            dlms_apdu_buf[(*apdu_len)++] = scheduled_bill_day[2]; /* Month */
+            dlms_apdu_buf[(*apdu_len)++] = scheduled_bill_day[3]; /* Day */
+            dlms_apdu_buf[(*apdu_len)++] = 0xFF;                  /* Day-of-week wildcard */
         }
         else
         {
-            dlms_apdu_buf[(*apdu_len)++] = billing_hour;
-            dlms_apdu_buf[(*apdu_len)++] = billing_minute;
-        }
-        dlms_apdu_buf[(*apdu_len)++] = 0x00;
-        dlms_apdu_buf[(*apdu_len)++] = 0x00;
+            /* Recurring monthly schedule */
+            r_day = read_eeprom(BILL_DAY_LOC);
+            if (r_day == 0 || r_day > 31)
+                r_day = 1;
 
-        dlms_apdu_buf[(*apdu_len)++] = 0x09;
-        dlms_apdu_buf[(*apdu_len)++] = 0x05;
-        if (spec_bill_active == 1)
-        {
-            dlms_apdu_buf[(*apdu_len)++] = (spec_bill_yr >> 8) & 0xFF;
-            dlms_apdu_buf[(*apdu_len)++] = spec_bill_yr & 0xFF;
-            dlms_apdu_buf[(*apdu_len)++] = spec_bill_mo;
-            dlms_apdu_buf[(*apdu_len)++] = spec_bill_dy;
+            r_hr = read_eeprom(BILL_TIME_LOC + 0);
+            r_mn = read_eeprom(BILL_TIME_LOC + 1);
+            if (r_hr > 23)
+                r_hr = 0;
+            if (r_mn > 59)
+                r_mn = 0;
+
+            /* 1. Time: HH:MM:00:00 */
+            dlms_apdu_buf[(*apdu_len)++] = 0x09;
+            dlms_apdu_buf[(*apdu_len)++] = 0x04;
+            dlms_apdu_buf[(*apdu_len)++] = r_hr;
+            dlms_apdu_buf[(*apdu_len)++] = r_mn;
+            dlms_apdu_buf[(*apdu_len)++] = 0x00;
+            dlms_apdu_buf[(*apdu_len)++] = 0x00;
+
+            /* 2. Date with Wildcard Year and Month (FF FF FF Day FF) */
+            dlms_apdu_buf[(*apdu_len)++] = 0x09;
+            dlms_apdu_buf[(*apdu_len)++] = 0x05;
+            dlms_apdu_buf[(*apdu_len)++] = 0xFF;
+            dlms_apdu_buf[(*apdu_len)++] = 0xFF;
+            dlms_apdu_buf[(*apdu_len)++] = 0xFF;
+            dlms_apdu_buf[(*apdu_len)++] = r_day;
+            dlms_apdu_buf[(*apdu_len)++] = 0xFF;
         }
-        else
-        {
-            dlms_apdu_buf[(*apdu_len)++] = 0xFF;
-            dlms_apdu_buf[(*apdu_len)++] = 0xFF;
-            dlms_apdu_buf[(*apdu_len)++] = 0xFF;
-            dlms_apdu_buf[(*apdu_len)++] = billing_day;
-        }
-        dlms_apdu_buf[(*apdu_len)++] = 0xFF;
     }
+}
+
+static unsigned char Write_Billing_Schedule(unsigned char attr, unsigned char *data, unsigned int len)
+{
+    if (attr == 4) /* execution_time */
+    {
+        unsigned int offset = 0;
+        unsigned char num_elements, i;
+        unsigned char yr_high = 0xFF, yr_low = 0xFF, mo = 0xFF, dy = 0xFF;
+        unsigned char hr = 0, mn = 0;
+        unsigned int full_year;
+        unsigned char date_found = 0, time_found = 0;
+
+        if (data[offset++] != 0x01)
+            return DLMS_RESULT_TYPE_UNMATCHED; /* Array tag */
+        num_elements = data[offset++];
+        if (num_elements == 0)
+            return DLMS_RESULT_SUCCESS;
+
+        if (data[offset++] != 0x02)
+            return DLMS_RESULT_TYPE_UNMATCHED; /* Struct tag */
+        if (data[offset++] != 0x02)
+            return DLMS_RESULT_TYPE_UNMATCHED; /* 2 fields */
+
+        /* Parse Time and Date fields regardless of tag (0x09, 0x1B, 0x1A) or order */
+        for (i = 0; i < 2; i++)
+        {
+            if (offset >= len)
+                break;
+
+            /* Case 1: Octet-String (0x09) */
+            if (data[offset] == 0x09)
+            {
+                unsigned char str_len = data[offset + 1];
+
+                if (str_len == 0x04) /* Time (HH:MM:SS:Hundredths) */
+                {
+                    hr = data[offset + 2];
+                    mn = data[offset + 3];
+                    time_found = 1;
+                    offset += (2 + str_len);
+                }
+                else if (str_len == 0x05) /* Date (YYYY-MM-DD-DOW) */
+                {
+                    yr_high = data[offset + 2];
+                    yr_low = data[offset + 3];
+                    mo = data[offset + 4];
+                    dy = data[offset + 5];
+                    date_found = 1;
+                    offset += (2 + str_len);
+                }
+                else
+                {
+                    return DLMS_RESULT_TYPE_UNMATCHED;
+                }
+            }
+            /* Case 2: Native DLMS Time Tag (0x1B) */
+            else if (data[offset] == 0x1B)
+            {
+                hr = data[offset + 1];
+                mn = data[offset + 2];
+                time_found = 1;
+                offset += 5; /* 1 tag + 4 payload bytes */
+            }
+            /* Case 3: Native DLMS Date Tag (0x1A) */
+            else if (data[offset] == 0x1A)
+            {
+                yr_high = data[offset + 1];
+                yr_low = data[offset + 2];
+                mo = data[offset + 3];
+                dy = data[offset + 4];
+                date_found = 1;
+                offset += 6; /* 1 tag + 5 payload bytes */
+            }
+            else
+            {
+                return DLMS_RESULT_TYPE_UNMATCHED;
+            }
+        }
+
+        if (!date_found || !time_found)
+            return DLMS_RESULT_TYPE_UNMATCHED;
+
+        /* Check if Year & Month are wildcards -> Recurring Monthly */
+        if (yr_high == 0xFF && yr_low == 0xFF && mo == 0xFF)
+        {
+            /* =========================================================
+             * 1. RECURRING MONTHLY BILLING SCHEDULE
+             * ========================================================= */
+            if (dy == 0xFE || dy == 0xFD)
+                dy = 31;
+            if (dy >= 1 && dy <= 31)
+            {
+                billing_day = dy;
+                bill_day[3] = dy;
+                bill_time[0] = hr;
+                bill_time[1] = mn;
+
+                write_eeprom(BILL_DAY_LOC, dy);
+                write_eeprom(BILL_TIME_LOC + 0, hr);
+                write_eeprom(BILL_TIME_LOC + 1, mn);
+
+                /* Clear scheduled specific date in RAM & EEPROM */
+                for (i = 0; i < 4; i++)
+                {
+                    scheduled_bill_day[i] = 0;
+                    write_eeprom(SCHEDULED_BILL_DAY_LOC + i, 0);
+                }
+                for (i = 0; i < 2; i++)
+                {
+                    scheduled_bill_time[i] = 0;
+                    write_eeprom(SCHEDULED_BILL_TIME_LOC + i, 0);
+                }
+
+                log_config_change_event(154);
+                return DLMS_RESULT_SUCCESS;
+            }
+        }
+        else
+        {
+            /* =========================================================
+             * 2. SPECIFIC ONE-OFF BILLING DATE (e.g., 2026-10-02 22:57)
+             * ========================================================= */
+            full_year = ((unsigned int)yr_high << 8) | yr_low;
+
+            if (full_year >= 2017 && full_year <= 2099 && mo >= 1 && mo <= 12 && dy >= 1 && dy <= 31)
+            {
+                /* Update RAM variables used by asdaq_app.c */
+                scheduled_bill_day[0] = yr_high;
+                scheduled_bill_day[1] = yr_low;
+                scheduled_bill_day[2] = mo;
+                scheduled_bill_day[3] = dy;
+
+                scheduled_bill_time[0] = hr; /* 22 */
+                scheduled_bill_time[1] = mn; /* 57 */
+
+                /* Write Date (4 bytes) to SCHEDULED_BILL_DAY_LOC */
+                write_eeprom(SCHEDULED_BILL_DAY_LOC + 0, yr_high);
+                write_eeprom(SCHEDULED_BILL_DAY_LOC + 1, yr_low);
+                write_eeprom(SCHEDULED_BILL_DAY_LOC + 2, mo);
+                write_eeprom(SCHEDULED_BILL_DAY_LOC + 3, dy);
+
+                /* Write Time (2 bytes) to SCHEDULED_BILL_TIME_LOC */
+                write_eeprom(SCHEDULED_BILL_TIME_LOC + 0, hr); /* 22 */
+                write_eeprom(SCHEDULED_BILL_TIME_LOC + 1, mn); /* 57 */
+
+                log_config_change_event(154);
+                return DLMS_RESULT_SUCCESS;
+            }
+        }
+
+        return DLMS_RESULT_TYPE_UNMATCHED;
+    }
+
+    return DLMS_RESULT_OBJECT_UNDEFINED;
 }
 
 static void Read_HDLC_Setup(unsigned char attr, unsigned int *apdu_len) /* 0.0.22.0.0.255 */
@@ -1531,118 +1725,6 @@ static unsigned char Write_Profile_Capture_Period(unsigned char attr, unsigned c
             to_eeprom(HRPOS_LOC, 0, 2);
             to_eeprom(HRCNT_LOC, 0, 2);
             write_eeprom(PREV_SURVEY_MIN_SLOT_LOC, (t_min / survey_intgr_val));
-
-            return DLMS_RESULT_SUCCESS;
-        }
-        return DLMS_RESULT_TYPE_UNMATCHED;
-    }
-    return DLMS_RESULT_OBJECT_UNDEFINED;
-}
-
-/* =========================================================
- * BILLING SCHEDULE WRITE (Class 22) - DUAL MODE
- * ========================================================= */
-static unsigned char Write_Billing_Schedule(unsigned char attr, unsigned char *data, unsigned int len)
-{
-    if (attr == 4) /* execution_time */
-    {
-        unsigned int offset = 0;
-        unsigned char num_elements, i;
-        unsigned char yr_high = 0xFF, yr_low = 0xFF, mo = 0xFF, dy = 1;
-        unsigned char hr = 0, mn = 0;
-        unsigned int full_year;
-        unsigned char date_found = 0;
-
-        if (data[offset++] != 0x01)
-            return DLMS_RESULT_TYPE_UNMATCHED;
-        num_elements = data[offset++];
-        if (num_elements == 0)
-            return DLMS_RESULT_SUCCESS;
-
-        if (data[offset++] != 0x02)
-            return DLMS_RESULT_TYPE_UNMATCHED;
-        if (data[offset++] != 0x02)
-            return DLMS_RESULT_TYPE_UNMATCHED;
-
-        /* Safely extract Time and Date, regardless of array order */
-        for (i = 0; i < 2; i++)
-        {
-            if (data[offset] == 0x09) /* Octet String */
-            {
-                unsigned char str_len = data[offset + 1];
-                if (str_len == 0x04) /* Time Format */
-                {
-                    hr = data[offset + 2];
-                    mn = data[offset + 3];
-                    offset += (2 + str_len);
-                }
-                else if (str_len == 0x05) /* Date Format */
-                {
-                    yr_high = data[offset + 2];
-                    yr_low = data[offset + 3];
-                    mo = data[offset + 4];
-                    dy = data[offset + 5];
-                    date_found = 1;
-                    offset += (2 + str_len);
-                }
-                else
-                    return DLMS_RESULT_TYPE_UNMATCHED;
-            }
-            else
-                return DLMS_RESULT_TYPE_UNMATCHED;
-        }
-
-        if (!date_found)
-            return DLMS_RESULT_TYPE_UNMATCHED;
-
-        /* --------------------------------------------------
-           LOGIC: Decide if it is Recurring or Specific
-           -------------------------------------------------- */
-        if (yr_high == 0xFF && yr_low == 0xFF && mo == 0xFF)
-        {
-            /* RECURRING SCHEDULE */
-            if (dy == 0xFE || dy == 0xFD)
-                dy = 31; /* Handle 'Last Day' wildcard */
-            if (dy >= 1 && dy <= 31)
-            {
-                billing_day = dy;
-                billing_hour = hr;
-                billing_minute = mn;
-
-                write_eeprom(BILL_DAY_LOC, billing_day);
-                write_eeprom(BILL_HOUR_LOC, billing_hour);
-                write_eeprom(BILL_MINUTE_LOC, billing_minute);
-
-                /* Disable specific bill and save to EEPROM */
-                spec_bill_active = 0;
-                write_eeprom(SPEC_BILL_LOC, 0);
-
-                log_config_change_event(154); /* 154 = Single-action Schedule for Billing Dates */
-
-                return DLMS_RESULT_SUCCESS;
-            }
-        }
-        else
-        {
-            /* SPECIFIC DATE (One-Off Bill) */
-            full_year = ((unsigned int)yr_high << 8) | yr_low;
-
-            spec_bill_yr = full_year;
-            spec_bill_mo = mo;
-            spec_bill_dy = dy;
-            spec_bill_hr = hr;
-            spec_bill_mn = mn;
-            spec_bill_active = 1;
-
-            /* Save to EEPROM for Power Failures (7 Bytes total) */
-            write_eeprom(SPEC_BILL_LOC, 1);                /* Active Flag */
-            to_eeprom(SPEC_BILL_LOC + 1, spec_bill_yr, 2); /* Year (2 Bytes) */
-            write_eeprom(SPEC_BILL_LOC + 3, spec_bill_mo); /* Month */
-            write_eeprom(SPEC_BILL_LOC + 4, spec_bill_dy); /* Day */
-            write_eeprom(SPEC_BILL_LOC + 5, spec_bill_hr); /* Hour */
-            write_eeprom(SPEC_BILL_LOC + 6, spec_bill_mn); /* Minute */
-
-            log_config_change_event(154); /* 154 = Single-action Schedule for Billing Dates */
 
             return DLMS_RESULT_SUCCESS;
         }
