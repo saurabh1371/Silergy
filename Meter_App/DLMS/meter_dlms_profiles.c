@@ -18,52 +18,52 @@
 #include "dlms_api.h"
 
 // --- SILERGY-TO-RENESAS TRANSLATION BRIDGE ---
-#define vrms_reg3          inst_voltage
-#define irms1_reg3         inst_phase_current
-#define irms2_reg3         inst_neutral_current
-#define freq_reg3          inst_freq
-#define pf_reg3            inst_pf
-#define tot_kw_reg3        inst_kw
-#define kva_reg3           inst_kva
-#define ontime             reset_on_time
-#define tamper_cnt         all_tamper_cnt
+#define vrms_reg3 inst_voltage
+#define irms1_reg3 inst_phase_current
+#define irms2_reg3 inst_neutral_current
+#define freq_reg3 inst_freq
+#define pf_reg3 inst_pf
+#define tot_kw_reg3 inst_kw
+#define kva_reg3 inst_kva
+#define ontime reset_on_time
+// #define tamper_cnt all_tamper_cnt
 
 // Memory and Config mappings
-#define config_change_cnt  scratch
-#define config_event_pos   scratch2
-#define CONFIG_EVENT_SIZE  10
-#define CONFIG_EVENT_LOC   0
+// #define config_change_cnt scratch
+#define config_event_pos scratch2
+#define CONFIG_EVENT_SIZE 10
+#define CONFIG_EVENT_LOC 0
 #define DLMS_PFAIL_EVENT_SIZE 10
 #define DLMS_PFAIL_EVENT_LOC 0
 #define DLMS_PFAIL_EVENT_POS_LOC 0
-#define tamper_pos         event_pos
-#define TAMPER_SIZE        EVENT_SIZE
-#define TAMPER_LOC         VOLT_EVENT_LOC
-#define INST_TAMPER_LOC    VOLT_EVENT_LOC
+#define tamper_pos event_pos
+#define TAMPER_SIZE EVENT_SIZE
+#define TAMPER_LOC VOLT_EVENT_LOC
+#define INST_TAMPER_LOC VOLT_EVENT_LOC
 #define HIST_BILL_TIME_LOC LAST_BILL_TIME_LOC
 
 // TOD and Billing mappings
 #define passive_num_of_zone num_of_zone
-#define passive_t_zone      t_zone
+#define passive_t_zone t_zone
 #define PASSIVE_NUM_ZONE_LOC NUM_ZONE_LOC
 #define tod_activation_time activate_time
 #define TOD_ACTIVATION_TIME_LOC ACTIVATE_TIME_LOC
-#define spec_bill_active    ep_clear_stat
-#define spec_bill_hr        single_billing_hr
-#define spec_bill_mn        single_billing_min
-#define billing_hour        billing_hr
-#define billing_minute      billing_min
-#define spec_bill_yr        single_billing_year
-#define spec_bill_mo        single_billing_month
-#define spec_bill_dy        single_billing_day
-#define BILL_HOUR_LOC       BILL_TIME_LOC
-#define BILL_MINUTE_LOC     (BILL_TIME_LOC+1)
-#define SPEC_BILL_LOC       SCHEDULED_BILL_DAY_LOC
+#define spec_bill_active ep_clear_stat
+#define spec_bill_hr single_billing_hr
+#define spec_bill_mn single_billing_min
+#define billing_hour billing_hr
+#define billing_minute billing_min
+#define spec_bill_yr single_billing_year
+#define spec_bill_mo single_billing_month
+#define spec_bill_dy single_billing_day
+#define BILL_HOUR_LOC BILL_TIME_LOC
+#define BILL_MINUTE_LOC (BILL_TIME_LOC + 1)
+#define SPEC_BILL_LOC SCHEDULED_BILL_DAY_LOC
 #define last_stored_tod_kwh_val last_hr_load_val[0]
 #define last_stored_tod_kvah_val last_hr_load_val[1]
 
 // Profile Generic mappings
-#define LOAD_DATE_LOC       DAILY_SURVEY_LOC
+#define LOAD_DATE_LOC DAILY_SURVEY_LOC
 #define DAILY_SURVEY_KVAH_LOC DAILY_SURVEY_LOC
 #define g_Class07_Blockload_EntriesInUse Load_Profile_Entries_In_Use
 #define g_Class07_Blockload_MaxEntries Load_Profile_Entries
@@ -77,8 +77,12 @@ void log_config_change_event(int a);
 
 #ifndef DLMS_STRUCTS_DEFINED
 #define DLMS_STRUCTS_DEFINED
-typedef struct {
-    struct { unsigned char year_high, year_low, month, day_of_month, hour, minute; } clock_value;
+typedef struct
+{
+    struct
+    {
+        unsigned char year_high, year_low, month, day_of_month, hour, minute;
+    } clock_value;
     unsigned int voltage_value, kWh_value, kVAh_value, current_value;
 } class07_blockload_entry_t;
 extern class07_blockload_entry_t g_Class07_BlockLoadBuffer;
@@ -210,15 +214,15 @@ static void DLMS_Append_Billing_Row(unsigned int *len_ptr, int row)
     {
         /* Historical Months */
         hist_idx = (mnth_pos + HISTORY_SIZE - row) % HISTORY_SIZE;
-        loc_kwmd = KWMD_LOC + (hist_idx * 21);
-        loc_kvamd = KVAMD_LOC + (hist_idx * 10);
+        loc_kwmd = KWMD_LOC + (hist_idx * 19);
+        loc_kvamd = KVAMD_LOC + (hist_idx * 11);
 
         tmp_date = from_eeprom(loc_kwmd, 3);
-        tmp_kwh = from_eeprom(loc_kwmd + 4, 3);
-        tmp_kwmd = from_eeprom(loc_kwmd + 7, 2);
-        tmp_pf = read_eeprom(loc_kwmd + 14);
-        tmp_kvah = from_eeprom(loc_kvamd, 3);
-        tmp_kvamd = from_eeprom(loc_kvamd + 3, 2);
+        tmp_kwh = from_eeprom(loc_kwmd + 5, 4);
+        tmp_kwmd = from_eeprom(loc_kwmd + 9, 2);
+        tmp_pf = read_eeprom(loc_kwmd + 18);
+        tmp_kvah = from_eeprom(loc_kvamd, 4);
+        tmp_kvamd = from_eeprom(loc_kvamd + 4, 2);
 
         if (tmp_date == 0)
         {
@@ -259,15 +263,15 @@ static void DLMS_Append_Billing_Row(unsigned int *len_ptr, int row)
         }
         DLMS_Inject_Type05_Uint32(&apdu_len, tmp_kwmd);
 
-        tmp_date = from_eeprom(loc_kwmd + 9, 3);
-        tmp_md_tm = from_eeprom(loc_kwmd + 12, 2);
+        tmp_date = from_eeprom(loc_kwmd + 11, 3);
+        tmp_md_tm = from_eeprom(loc_kwmd + 14, 2);
 
         DLMS_Inject_EEPROM_Date(&apdu_len, tmp_kwmd, tmp_date, tmp_md_tm);
 
         DLMS_Inject_Type05_Uint32(&apdu_len, tmp_kvamd);
 
-        tmp_date = from_eeprom(loc_kvamd + 5, 3);
-        tmp_md_tm = from_eeprom(loc_kvamd + 8, 2);
+        tmp_date = from_eeprom(loc_kvamd + 6, 3);
+        tmp_md_tm = from_eeprom(loc_kvamd + 9, 2);
 
         DLMS_Inject_EEPROM_Date(&apdu_len, tmp_kvamd, tmp_date, tmp_md_tm);
 
@@ -1183,8 +1187,8 @@ static const unsigned char pfail_capture_objs[] = {
 static const unsigned char inst_scalar_attr2_buf[] = {
     0x01, 0x01, 0x02, 0x0C,             /* Array, 1 row, struct, 12 cols */
     0x02, 0x02, 0x0F, 0xFF, 0x16, 0x23, /* V (-1) */
-    0x02, 0x02, 0x0F, 0xFE, 0x16, 0x21, /* A (-2) */
-    0x02, 0x02, 0x0F, 0xFE, 0x16, 0x21, /* N-A (-2) */
+    0x02, 0x02, 0x0F, 0xFD, 0x16, 0x21, /* A (-3) */
+    0x02, 0x02, 0x0F, 0xFD, 0x16, 0x21, /* N-A (-3) */
     0x02, 0x02, 0x0F, 0xFD, 0x16, 0xFF, /* PF (-3, Unitless) */
     0x02, 0x02, 0x0F, 0xFF, 0x16, 0x2C, /* Hz (-1) */
     0x02, 0x02, 0x0F, 0x00, 0x16, 0x1C, /* VA (0) */
@@ -1271,7 +1275,7 @@ DLMS_Class7_Result_t DLMS_Meter_ProcessClass7Get(unsigned char client, unsigned 
             dlms_apdu_buf[apdu_len++] = register_val & 0xFF;
 
             // 5. Power Factor (PF)
-            register_val = pf_reg3;
+            register_val = pf_reg3 * 10;
             dlms_apdu_buf[apdu_len++] = 0x05;
             dlms_apdu_buf[apdu_len++] = (register_val >> 24) & 0xFF;
             dlms_apdu_buf[apdu_len++] = (register_val >> 16) & 0xFF;
@@ -1326,10 +1330,7 @@ DLMS_Class7_Result_t DLMS_Meter_ProcessClass7Get(unsigned char client, unsigned 
             dlms_apdu_buf[apdu_len++] = (register_val >> 8) & 0xFF;
             dlms_apdu_buf[apdu_len++] = register_val & 0xFF;
 
-            tmp_md_dt = from_eeprom(KWMD_LOC + (mnth_pos * 21) + 9, 3);
-            tmp_md_tm = from_eeprom(KWMD_LOC + (mnth_pos * 21) + 12, 2);
-
-            DLMS_Inject_EEPROM_Date(&apdu_len, register_val, tmp_md_dt, tmp_md_tm);
+            DLMS_Inject_EEPROM_Date(&apdu_len, register_val, kwmd_date, kwmd_time);
 
             /* 13 & 14. App MD & Time */
             register_val = kvamd_val;
@@ -1339,13 +1340,10 @@ DLMS_Class7_Result_t DLMS_Meter_ProcessClass7Get(unsigned char client, unsigned 
             dlms_apdu_buf[apdu_len++] = (register_val >> 8) & 0xFF;
             dlms_apdu_buf[apdu_len++] = register_val & 0xFF;
 
-            tmp_md_dt = from_eeprom(KVAMD_LOC + (mnth_pos * 10) + 5, 3);
-            tmp_md_tm = from_eeprom(KVAMD_LOC + (mnth_pos * 10) + 8, 2);
+            DLMS_Inject_EEPROM_Date(&apdu_len, register_val, kvamd_date, kvamd_time);
 
-            DLMS_Inject_EEPROM_Date(&apdu_len, register_val, tmp_md_dt, tmp_md_tm);
-
-            /* 15. Power ON Duration (0.0.94.91.14.255) */
-            register_val = (ontime * 6); /* Convert 6-min blocks to exact minutes */
+            /* 15. Cumulative Power ON Duration (0.0.94.91.14.255) */
+            register_val = Cum_Power_On_Dur; /* Total power on time in minutes */
             dlms_apdu_buf[apdu_len++] = 0x05;
             dlms_apdu_buf[apdu_len++] = (register_val >> 24) & 0xFF;
             dlms_apdu_buf[apdu_len++] = (register_val >> 16) & 0xFF;
@@ -1353,7 +1351,7 @@ DLMS_Class7_Result_t DLMS_Meter_ProcessClass7Get(unsigned char client, unsigned 
             dlms_apdu_buf[apdu_len++] = register_val & 0xFF;
 
             /* 16. Cumulative Tamper Count (0.0.94.91.0.255) */
-            register_val = tamper_cnt;
+            register_val = all_tamper_cnt;
             dlms_apdu_buf[apdu_len++] = 0x06; /* Uint32 (Double Long Unsigned) */
             dlms_apdu_buf[apdu_len++] = (register_val >> 24) & 0xFF;
             dlms_apdu_buf[apdu_len++] = (register_val >> 16) & 0xFF;
@@ -1370,8 +1368,8 @@ DLMS_Class7_Result_t DLMS_Meter_ProcessClass7Get(unsigned char client, unsigned 
 
             /* 18. Config Program Changes (0.0.96.2.0.255) */
             dlms_apdu_buf[apdu_len++] = 0x12; /* Uint16 */
-            dlms_apdu_buf[apdu_len++] = (config_change_cnt >> 8) & 0xFF;
-            dlms_apdu_buf[apdu_len++] = config_change_cnt & 0xFF;
+            dlms_apdu_buf[apdu_len++] = (Cum_Prog_Count >> 8) & 0xFF;
+            dlms_apdu_buf[apdu_len++] = Cum_Prog_Count & 0xFF;
         }
         else if (attr == 6) /* Sort Object (Clock) */
         {

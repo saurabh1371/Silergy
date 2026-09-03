@@ -24,10 +24,10 @@
 #define tot_kw_reg3        inst_kw
 #define kva_reg3           inst_kva
 #define ontime             reset_on_time
-#define tamper_cnt         all_tamper_cnt
+// #define tamper_cnt         all_tamper_cnt
 
 // Memory and Config mappings
-#define config_change_cnt  scratch
+// #define config_change_cnt  scratch
 #define config_event_pos   scratch2
 #define CONFIG_EVENT_SIZE  10
 #define CONFIG_EVENT_LOC   0
@@ -252,7 +252,7 @@ static void Read_TamperCountCumulative(unsigned char attr, unsigned int *apdu_le
     unsigned long register_val;
     if (attr == 2)
     {
-        register_val = tamper_cnt;
+        register_val = all_tamper_cnt;
         dlms_apdu_buf[(*apdu_len)++] = 0x06; /* Double-Long-Unsigned */
         dlms_apdu_buf[(*apdu_len)++] = (register_val >> 24) & 0xFF;
         dlms_apdu_buf[(*apdu_len)++] = (register_val >> 16) & 0xFF;
@@ -279,7 +279,7 @@ static void Read_ConfigChangeCount(unsigned char attr, unsigned int *apdu_len) /
 {
     if (attr == 2)
     {
-        DLMS_Inject_Type12_Uint16(apdu_len, config_change_cnt);
+        DLMS_Inject_Type12_Uint16(apdu_len, (unsigned int)Cum_Prog_Count);
     }
 }
 
@@ -998,7 +998,7 @@ static void Read_Current1(unsigned char attr, unsigned int *apdu_len) /* 1.0.11.
         dlms_apdu_buf[(*apdu_len)++] = 0x02;
         dlms_apdu_buf[(*apdu_len)++] = 0x02;
         dlms_apdu_buf[(*apdu_len)++] = 0x0F;
-        dlms_apdu_buf[(*apdu_len)++] = 0xFE; /* scaler -2 */
+        dlms_apdu_buf[(*apdu_len)++] = 0xFD; /* scaler -3 */
         dlms_apdu_buf[(*apdu_len)++] = 0x16;
         dlms_apdu_buf[(*apdu_len)++] = 0x21; /* A */
     }
@@ -1015,7 +1015,7 @@ static void Read_Current2(unsigned char attr, unsigned int *apdu_len) /* 1.0.91.
         dlms_apdu_buf[(*apdu_len)++] = 0x02;
         dlms_apdu_buf[(*apdu_len)++] = 0x02;
         dlms_apdu_buf[(*apdu_len)++] = 0x0F;
-        dlms_apdu_buf[(*apdu_len)++] = 0xFE; /* scaler -2 */
+        dlms_apdu_buf[(*apdu_len)++] = 0xFD; /* scaler -3 */
         dlms_apdu_buf[(*apdu_len)++] = 0x16;
         dlms_apdu_buf[(*apdu_len)++] = 0x21; /* A */
     }
@@ -1042,7 +1042,7 @@ static void Read_InstPF(unsigned char attr, unsigned int *apdu_len) /* 1.0.13.7.
 {
     if (attr == 2)
     {
-        DLMS_Inject_Type12_Uint16(apdu_len, pf_reg3);
+        DLMS_Inject_Type12_Uint16(apdu_len, pf_reg3 * 10);
     }
     else if (attr == 3)
     {
@@ -1110,7 +1110,7 @@ static void Read_PowerOnDuration(unsigned char attr, unsigned int *apdu_len) /* 
 {
     if (attr == 2)
     {
-        DLMS_Inject_Type05_Uint32(apdu_len, ((unsigned long)ontime * 6));
+        DLMS_Inject_Type05_Uint32(apdu_len, Cum_Power_On_Dur);
     }
     else if (attr == 3)
     {

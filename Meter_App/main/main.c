@@ -1269,9 +1269,21 @@ void serial_comm(void)
 					SerialDisplayTimeOut = 1;
 					CalDisplayVar = CLRC;
 					CalDisplay();
+					/* Decrement cumulative tamper count if cover open was registered */
+					if (cuopen_stat == 1)
+					{
+						if (all_tamper_cnt > 0)
+						{
+							all_tamper_cnt--;
+						}
+					}
+
+					/* Clear Cover Open EEPROM records and RAM states */
 					for (i = 0; i < 7; i++)
 						to_eeprom(CUOPEN_LOC + i, 0, 1);
 					cuopen_stat = 0;
+					cuopen_date = 0;
+					cuopen_time = 0;
 					break;
 
 				case UNLOCK_CMD:

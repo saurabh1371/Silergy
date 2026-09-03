@@ -253,10 +253,14 @@ void store_log_dt(int a)
     (void)a;
 }
 
+extern void store_event_data(unsigned char event_type, unsigned int event_id, unsigned char stat);
+
 void log_config_change_event(int a)
 {
-    (void)a;
+    /* TRANSACT_EVENT (3) increments Cum_Prog_Count and saves it to PROGRAMCNT_LOC */
+    store_event_data(TRANSACT_EVENT, (unsigned int)a, 0);
 }
+
 /*
 uint8_t auth0[2];
 uint8_t auth1[10];
