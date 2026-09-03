@@ -402,6 +402,8 @@ void reg_put (void)
     else
         reg_idx = 0; // register set 0
 
+    (void)reg_idx; /* Tell the compiler reg_idx is intentionally unused */
+    
     // Write the billing registers to EEPROM.
     // No need to write to NVRAM: Done in meter-run()
     // in meter.c

@@ -51,6 +51,7 @@ extern void BatteryModeManualNext(void);
 extern void lcd_init_no_clear(void);
 extern void BatteryModeTask(void);
 extern void BatteryModeRender(void);
+extern void Put_Data_On_LCD(void);
 void invole_BL(void);
 
 extern void lcd_update(void);
@@ -416,8 +417,6 @@ void WakePushButtonFunction(void)
 uint8_t PushButtonCommMode = 0;
 void CheckWakeSource(void)
 {
-	uint32_t i, j = 0;
-
 	if (SYS->WAKE_SRC_b.ws_vsys || SYS->WAKE_SRC_b.ws_wdof || SYS->WAKE_SRC_b.ws_rstbit || SYS->WAKE_SRC_b.ws_rst || SYS->WAKE_SRC_b.ws_cstart)
 	{
 		WakeFromReason = WAKE_FROM_MAINS;
@@ -644,7 +643,7 @@ int main(void)
 			s_time.tm_hour = 19;
 			s_time.tm_min = 15;
 			s_time.tm_sec = 0;
-			s_time.tm_subsec = 0;//*/
+			s_time.tm_subsec = 0;*/
 		rtc_write(&s_time);
 	}
 
@@ -1323,7 +1322,6 @@ void serial_comm(void)
 						while (1)
 							;
 					}
-					break;
 
 				case CLR2_CMD:
 				{
@@ -1336,7 +1334,6 @@ void serial_comm(void)
 					while (1)
 						;
 				}
-				break;
 
 				case CLR_TAMPER_CMD:
 					SerialDisplayTimeOut = 1;

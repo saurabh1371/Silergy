@@ -18,6 +18,7 @@
 #include "bitdef.h"
 #include "Prototypes.h"
 #include "dlms_stack.h"
+#include "wd.h"
 
 const char fw_ver_ser2[] =
     "ser2" /* Device Driver name */

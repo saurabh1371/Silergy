@@ -55,8 +55,8 @@ Local_ce_data Local_RAM_ce_data;
  *     conversion. Confirm this scale factor is valid for VA as well as W;
  *     use an afe_vasum2va()-equivalent instead if the AFE driver has one.
  */
-unsigned long int dmd_va_cnt = 0;
-unsigned int dmd_va_frac = 0;
+int32_t dmd_va_cnt = 0;
+int32_t dmd_va_frac = 0;
 int32_t g_dmd_va_max = 0;
 
 /* Full-resolution snapshot of THIS period's average demand, refreshed every
@@ -76,8 +76,10 @@ int32_t g_dmd_period_kva = 0;
 // The following routines have to be synchronized with the data cycle.
 static void meter_demand_reset(void);    // Reset demand.
 static void meter_registers_reset(void); // Reset billing data.
+#if 0
 static int meter_in_creep(void);         // Determines if the meter is in creep.
-void meter_sum_data(void);               // Adds up the billing data.
+#endif
+void meter_sum_data(void); // Adds up the billing data.
 
 // Global state of the metering: creep, etc.
 uint32_t meter_state; // The bits are in meter.h
@@ -424,7 +426,8 @@ void meter_compensate_afe(void)
  * Return Status:
  *         Nonzero indicate not in creep.
  ***************************************************************************/
-static int meter_in_creep(void)
+#if 0
+ static int meter_in_creep(void)
 {
     int vmask, imask, wmask, inovmask;
 
@@ -487,7 +490,7 @@ static int meter_in_creep(void)
 
     return meter_state & CREEP_MASK; // Meter in creep?
 } // meter in creep ()
-
+#endif
 /***************************************************************************
  * Description:
  *        Metering code: Adds up the billing data.

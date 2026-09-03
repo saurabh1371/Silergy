@@ -577,8 +577,8 @@ void init_eeprom(void)
     all_tamper_cnt = all_tamper_cnt + tamper_cnt[i];
   }
 
-  if(cuopen_stat==1)
-    all_tamper_cnt=all_tamper_cnt+1;
+  if (cuopen_stat == 1)
+    all_tamper_cnt = all_tamper_cnt + 1;
 
   Max_Demand_Capture_Period = from_eeprom(MD_INTGR_LOC, 2);
   Load_Profile_Capture_Period = from_eeprom(SURVEY_INTGR_LOC, 2);
@@ -1188,7 +1188,7 @@ else
       cuopen_date = real_date;
       cuopen_time = real_time;
       cuopen_stat = 1;
-      all_tamper_cnt=all_tamper_cnt+1;
+      all_tamper_cnt = all_tamper_cnt + 1;
       // disp_copen();
     }
   }
