@@ -41,11 +41,11 @@
 #define HIST_BILL_TIME_LOC LAST_BILL_TIME_LOC
 
 // TOD and Billing mappings
-#define passive_num_of_zone num_of_zone
-#define passive_t_zone t_zone
-#define PASSIVE_NUM_ZONE_LOC NUM_ZONE_LOC
-#define tod_activation_time activate_time
-#define TOD_ACTIVATION_TIME_LOC ACTIVATE_TIME_LOC
+// #define passive_num_of_zone num_of_zone
+// #define passive_t_zone t_zone
+// #define PASSIVE_NUM_ZONE_LOC NUM_ZONE_LOC
+// #define tod_activation_time activate_time
+// #define TOD_ACTIVATION_TIME_LOC ACTIVATE_TIME_LOC
 #define spec_bill_active ep_clear_stat
 #define spec_bill_hr single_billing_hr
 #define spec_bill_mn single_billing_min
@@ -720,19 +720,9 @@ static void Read_ActivityCalendar(unsigned char attr, unsigned int *apdu_len) /*
     else if (attr == 5 || attr == 9) /* day_profile active/passive */
     {
         unsigned char target_num;
-        unsigned int *target_zone_ptr;
         unsigned char out_hr, out_mn;
 
-        if (attr == 5)
-        {
-            target_num = num_of_zone;
-            target_zone_ptr = t_zone;
-        }
-        else
-        {
-            target_num = passive_num_of_zone;
-            target_zone_ptr = passive_t_zone;
-        }
+        target_num = num_of_zone;
 
         dlms_apdu_buf[(*apdu_len)++] = 0x01;
         dlms_apdu_buf[(*apdu_len)++] = 0x01;
@@ -752,23 +742,32 @@ static void Read_ActivityCalendar(unsigned char attr, unsigned int *apdu_len) /*
             dlms_apdu_buf[(*apdu_len)++] = 0x09;
             dlms_apdu_buf[(*apdu_len)++] = 0x04;
 
-            if (i < target_num)
+            if (attr == 5) /* Active */
             {
-                out_hr = (unsigned char)(target_zone_ptr[i] / 100);
-                out_mn = (unsigned char)(target_zone_ptr[i] % 100);
-                if (out_hr > 23)
+                if (i < target_num)
+                {
+                    out_hr = (unsigned char)(t_zone[i] / 100);
+                    out_mn = (unsigned char)(t_zone[i] % 100);
+                }
+                else
+                {
                     out_hr = 0;
-                if (out_mn > 59)
                     out_mn = 0;
-                dlms_apdu_buf[(*apdu_len)++] = out_hr;
-                dlms_apdu_buf[(*apdu_len)++] = out_mn;
+                }
             }
-            else
+            else /* Passive (Attribute 9) */
             {
-                dlms_apdu_buf[(*apdu_len)++] = 0x00;
-                dlms_apdu_buf[(*apdu_len)++] = 0x00;
+                out_hr = passive_tod_time[i][0];
+                out_mn = passive_tod_time[i][1];
             }
 
+            if (out_hr > 23)
+                out_hr = 0;
+            if (out_mn > 59)
+                out_mn = 0;
+
+            dlms_apdu_buf[(*apdu_len)++] = out_hr;
+            dlms_apdu_buf[(*apdu_len)++] = out_mn;
             dlms_apdu_buf[(*apdu_len)++] = 0x00;
             dlms_apdu_buf[(*apdu_len)++] = 0xFF;
 
@@ -784,62 +783,27 @@ static void Read_ActivityCalendar(unsigned char attr, unsigned int *apdu_len) /*
             dlms_apdu_buf[(*apdu_len)++] = 0x12;
             dlms_apdu_buf[(*apdu_len)++] = 0x00;
 
-            if (i < target_num)
-                dlms_apdu_buf[(*apdu_len)++] = (i + 1);
+            if (attr == 5)
+                dlms_apdu_buf[(*apdu_len)++] = (i < target_num) ? (i + 1) : 0x00;
             else
-                dlms_apdu_buf[(*apdu_len)++] = 0x00;
+                dlms_apdu_buf[(*apdu_len)++] = (passive_tariff_id[0][i] > 0) ? passive_tariff_id[0][i] : 0x00;
         }
     }
     else if (attr == 10) /* activation_time */
     {
-        if (tod_activation_time == 0)
+        if (activate_date == 0)
         {
-            dlms_apdu_buf[(*apdu_len)++] = 0x09;
-            dlms_apdu_buf[(*apdu_len)++] = 0x0C;
-            dlms_apdu_buf[(*apdu_len)++] = 0xFF;
-            dlms_apdu_buf[(*apdu_len)++] = 0xFF;
-            dlms_apdu_buf[(*apdu_len)++] = 0xFF;
-            dlms_apdu_buf[(*apdu_len)++] = 0xFF;
-            dlms_apdu_buf[(*apdu_len)++] = 0xFF;
-            dlms_apdu_buf[(*apdu_len)++] = 0xFF;
-            dlms_apdu_buf[(*apdu_len)++] = 0xFF;
-            dlms_apdu_buf[(*apdu_len)++] = 0xFF;
-            dlms_apdu_buf[(*apdu_len)++] = 0xFF;
-            dlms_apdu_buf[(*apdu_len)++] = 0x80;
-            dlms_apdu_buf[(*apdu_len)++] = 0x00;
-            dlms_apdu_buf[(*apdu_len)++] = 0xFF;
+            DLMS_Inject_Dummy_DateTime(apdu_len);
         }
         else
         {
-            unsigned long temp = tod_activation_time;
-            unsigned char mn, hr, dy, mo;
-            unsigned int yr;
+            unsigned int yr = 2000 + (activate_date % 100);
+            unsigned char mo = (activate_date / 100) % 100;
+            unsigned char dy = (activate_date / 10000);
+            unsigned char hr = activate_time / 100;
+            unsigned char mn = activate_time % 100;
 
-            mn = temp & 0x3F;
-            hr = (temp >> 6) & 0x1F;
-            dy = (temp >> 11) & 0x1F;
-            mo = (temp >> 16) & 0x0F;
-            yr = 2000 + ((temp >> 20) & 0xFF);
-
-            if (mn > 59)
-                mn = 0;
-            if (hr > 23)
-                hr = 0;
-
-            dlms_apdu_buf[(*apdu_len)++] = 0x09;
-            dlms_apdu_buf[(*apdu_len)++] = 0x0C;
-            dlms_apdu_buf[(*apdu_len)++] = (yr >> 8) & 0xFF;
-            dlms_apdu_buf[(*apdu_len)++] = yr & 0xFF;
-            dlms_apdu_buf[(*apdu_len)++] = mo;
-            dlms_apdu_buf[(*apdu_len)++] = dy;
-            dlms_apdu_buf[(*apdu_len)++] = 0xFF;
-            dlms_apdu_buf[(*apdu_len)++] = hr;
-            dlms_apdu_buf[(*apdu_len)++] = mn;
-            dlms_apdu_buf[(*apdu_len)++] = 0x00;
-            dlms_apdu_buf[(*apdu_len)++] = 0xFF;
-            dlms_apdu_buf[(*apdu_len)++] = 0x80;
-            dlms_apdu_buf[(*apdu_len)++] = 0x00;
-            dlms_apdu_buf[(*apdu_len)++] = 0x00;
+            DLMS_Inject_DateTime(apdu_len, yr, mo, dy, hr, mn, 0);
         }
     }
 }
@@ -1505,19 +1469,21 @@ static unsigned char Method_MD_Reset(unsigned char method_id)
  * ACTIVITY CALENDAR WRITE (Client 48)
  * Parses incoming day_profile_passive and updates TOD EEPROM
  * ========================================================= */
+extern void tod_passive_to_active(void);
+
 static unsigned char Write_Activity_Calendar(unsigned char attr, unsigned char *data, unsigned int len)
 {
     unsigned int offset = 0;
     unsigned char num_zones = 0;
     unsigned char i, dp;
     unsigned int new_t_zone[TOD_SIZE];
+    unsigned char new_tariff_id[TOD_SIZE];
     unsigned char num_day_profiles, day_id_type, sel_type;
     unsigned char hr, mn;
     unsigned int yr;
     unsigned char mo, dy, hr_t, mn_t;
-    unsigned long int trigger_utc;
 
-    if (attr == 9)
+    if (attr == 9) /* day_profile_table_passive */
     {
         if (data[offset++] != 0x01)
             return DLMS_RESULT_TYPE_UNMATCHED;
@@ -1561,7 +1527,7 @@ static unsigned char Write_Activity_Calendar(unsigned char attr, unsigned char *
 
                 hr = data[offset++];
                 mn = data[offset++];
-                offset += 2;
+                offset += 2; /* Skip sec, hundredths */
 
                 new_t_zone[i] = (hr * 100) + mn;
 
@@ -1569,34 +1535,64 @@ static unsigned char Write_Activity_Calendar(unsigned char attr, unsigned char *
                     return DLMS_RESULT_TYPE_UNMATCHED;
                 if (data[offset++] != 0x06)
                     return DLMS_RESULT_TYPE_UNMATCHED;
-                offset += 6;
+                offset += 6; /* Skip script logical name */
 
                 sel_type = data[offset++];
                 if (sel_type == 0x06 || sel_type == 0x05)
+                {
+                    new_tariff_id[i] = data[offset + 3];
                     offset += 4;
+                }
                 else if (sel_type == 0x12 || sel_type == 0x10)
+                {
+                    new_tariff_id[i] = data[offset + 1];
                     offset += 2;
+                }
                 else if (sel_type == 0x11 || sel_type == 0x0F || sel_type == 0x16)
-                    offset += 1;
+                {
+                    new_tariff_id[i] = data[offset++];
+                }
                 else
+                {
                     return DLMS_RESULT_TYPE_UNMATCHED;
+                }
             }
         }
 
         if (num_zones > 0)
         {
-            for (i = 0; i < num_zones; i++)
+            /* Write ONLY to passive EEPROM & passive RAM tables; DO NOT touch active t_zone */
+            for (i = 0; i < TOD_SIZE; i++)
             {
-                passive_t_zone[i] = new_t_zone[i];
-                to_eeprom(PASSIVE_TOD_LOC + (i * 2), passive_t_zone[i], 2);
+                if (i < num_zones)
+                {
+                    to_eeprom(PASSIVE_TOD_LOC + (i * 2), new_t_zone[i], 2);
+                    write_eeprom(PASSIVE_TOD_ID_LOC + i, new_tariff_id[i]);
+
+                    passive_tod_time[i][0] = new_t_zone[i] / 100;
+                    passive_tod_time[i][1] = new_t_zone[i] % 100;
+                    passive_tod_time[i][2] = 0;
+                    passive_tod_time[i][3] = 0xFF;
+                    passive_tariff_id[0][i] = new_tariff_id[i];
+                }
+                else
+                {
+                    to_eeprom(PASSIVE_TOD_LOC + (i * 2), 0, 2);
+                    write_eeprom(PASSIVE_TOD_ID_LOC + i, 0);
+
+                    passive_tod_time[i][0] = 0;
+                    passive_tod_time[i][1] = 0;
+                    passive_tod_time[i][2] = 0;
+                    passive_tod_time[i][3] = 0xFF;
+                    passive_tariff_id[0][i] = 0;
+                }
             }
-            passive_num_of_zone = num_zones;
-            write_eeprom(PASSIVE_NUM_ZONE_LOC, passive_num_of_zone);
+
             log_config_change_event(155);
         }
         return DLMS_RESULT_SUCCESS;
     }
-    else if (attr == 10)
+    else if (attr == 10) /* activate_passive_calendar_time */
     {
         if (len < 14)
             return DLMS_RESULT_TYPE_UNMATCHED;
@@ -1609,14 +1605,27 @@ static unsigned char Write_Activity_Calendar(unsigned char attr, unsigned char *
         hr_t = data[7];
         mn_t = data[8];
 
-        trigger_utc = ((unsigned long)(yr % 100) << 20) |
-                      ((unsigned long)mo << 16) |
-                      ((unsigned long)dy << 11) |
-                      ((unsigned long)hr_t << 6) |
-                      (mn_t);
+        /* If wildcards or 0, clear scheduled activation */
+        if (data[2] == 0xFF || mo == 0xFF || dy == 0xFF || mo == 0 || dy == 0)
+        {
+            activate_date = 0;
+            activate_time = 0;
+            to_eeprom(ACTIVATE_DATE_LOC, 0, 3);
+            to_eeprom(ACTIVATE_TIME_LOC, 0, 2);
+            memset(Activate_Passive_Calendar_Time, 0, 12);
+        }
+        else
+        {
+            /* Store in DDMMYY format (3 bytes) and HHMM format (2 bytes) for asdaq_app.c */
+            activate_date = ((unsigned long)dy * 10000) + ((unsigned long)mo * 100) + (yr % 100);
+            activate_time = ((unsigned long)hr_t * 100) + mn_t;
 
-        tod_activation_time = trigger_utc;
-        to_eeprom(TOD_ACTIVATION_TIME_LOC, tod_activation_time, 4);
+            to_eeprom(ACTIVATE_DATE_LOC, activate_date, 3);
+            to_eeprom(ACTIVATE_TIME_LOC, activate_time, 2);
+
+            get_time_data(activate_date, (activate_time * 100));
+            memcpy(Activate_Passive_Calendar_Time, tmp_time_string, 12);
+        }
 
         return DLMS_RESULT_SUCCESS;
     }
@@ -1633,19 +1642,16 @@ static unsigned char Method_Activity_Calendar(unsigned char method_id)
 {
     if (method_id == 1)
     {
-        unsigned char i;
-        num_of_zone = passive_num_of_zone;
-        write_eeprom(NUM_ZONE_LOC, num_of_zone);
-
-        for (i = 0; i < TOD_SIZE; i++)
+        /* If a future activation date/time is scheduled, do not switch now.
+         * history_func() in asdaq_app.c will execute the switch when that time arrives. */
+        if (activate_date != 0)
         {
-            t_zone[i] = passive_t_zone[i];
-            to_eeprom(TOD_LOC + (i * 2), t_zone[i], 2);
+            return DLMS_RESULT_SUCCESS;
         }
 
-        tod_activation_time = 0;
-        to_eeprom(TOD_ACTIVATION_TIME_LOC, 0, 4);
-
+        /* If no schedule is pending, activate immediately */
+        tod_passive_to_active();
+        md_reset_b = 1;
         return DLMS_RESULT_SUCCESS;
     }
     return DLMS_RESULT_READ_WRITE_DENIED;

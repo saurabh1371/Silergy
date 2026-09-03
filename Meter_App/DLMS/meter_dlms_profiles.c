@@ -43,11 +43,11 @@
 #define HIST_BILL_TIME_LOC LAST_BILL_TIME_LOC
 
 // TOD and Billing mappings
-#define passive_num_of_zone num_of_zone
-#define passive_t_zone t_zone
-#define PASSIVE_NUM_ZONE_LOC NUM_ZONE_LOC
-#define tod_activation_time activate_time
-#define TOD_ACTIVATION_TIME_LOC ACTIVATE_TIME_LOC
+// #define passive_num_of_zone num_of_zone
+// #define passive_t_zone t_zone
+// #define PASSIVE_NUM_ZONE_LOC NUM_ZONE_LOC
+// #define tod_activation_time activate_time
+// #define TOD_ACTIVATION_TIME_LOC ACTIVATE_TIME_LOC
 #define spec_bill_active ep_clear_stat
 #define spec_bill_hr single_billing_hr
 #define spec_bill_mn single_billing_min
