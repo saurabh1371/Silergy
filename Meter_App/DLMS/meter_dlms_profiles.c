@@ -68,6 +68,9 @@
 #define g_Class07_Blockload_EntriesInUse Load_Profile_Entries_In_Use
 #define g_Class07_Blockload_MaxEntries Load_Profile_Entries
 
+extern void get_lp_data(unsigned int index);
+extern void get_tamper_data(unsigned char event_type, unsigned int index);
+
 extern unsigned int dlms_pfail_event_pos;
 extern void reset_ls_data(void);
 void convt_utc(unsigned long tmp);
@@ -407,234 +410,78 @@ const unsigned char dlms_to_internal[6][3] = {
 static void DLMS_Append_Event_Row(unsigned int *len_ptr, int row)
 {
     unsigned int apdu_len = *len_ptr;
-    unsigned int loc;
-    unsigned int ev_code;
-    unsigned long ev_vrms, ev_irms, ev_pf, ev_kwh;
-    unsigned long tmp_date;
     unsigned int yr;
-    unsigned char mo, dy, hr, mn;
-    unsigned int hist_idx;
-    unsigned char is_active, is_restoration;
-    int eeprom_record_idx;
+    unsigned char mo, dy, hr, mn, sec;
 
-    unsigned int max_size;
-    unsigned int curr_pos;
-    unsigned int base_loc;
-    unsigned int rec_size;
-    unsigned char int_type = 0;
-    int running_row;
-    int rows_for_this_type;
-    int j;
-    int i;
-    unsigned long tmp_time;
-    unsigned int valid_count;
+    /* row is 0-indexed. get_tamper_data expects 1-indexed (1 = newest event) */
+    get_tamper_data(tx_event_type, (unsigned int)(row + 1));
 
-    /* 1. Handle Transaction AND Power Failures (2 Columns) */
-    if (tx_event_type == 100 || tx_event_type == 200)
+    if (tx_event_type == 2 || tx_event_type == 3)
     {
-        eeprom_record_idx = row;
-
-        max_size = (tx_event_type == 100) ? CONFIG_EVENT_SIZE : DLMS_PFAIL_EVENT_SIZE;
-        curr_pos = (tx_event_type == 100) ? config_event_pos : dlms_pfail_event_pos;
-        base_loc = (tx_event_type == 100) ? CONFIG_EVENT_LOC : DLMS_PFAIL_EVENT_LOC;
-        rec_size = (tx_event_type == 100) ? 26 : 6;
-
-        if (curr_pos == 0)
-            hist_idx = (max_size - 1) - eeprom_record_idx;
-        else
-        {
-            if (eeprom_record_idx < curr_pos)
-                hist_idx = curr_pos - 1 - eeprom_record_idx;
-            else
-                hist_idx = max_size - (eeprom_record_idx - curr_pos) - 1;
-        }
-
-        loc = base_loc + (hist_idx * rec_size);
-        ev_code = (read_eeprom(loc) << 8) | read_eeprom(loc + 1);
-        tmp_date = from_eeprom(loc + 2, 4);
-
+        /* --- 2 Columns: Power Fail (2) and Transaction (3) --- */
         dlms_apdu_buf[apdu_len++] = 0x02; /* Structure */
-        dlms_apdu_buf[apdu_len++] = 0x02; /* 2 Columns! */
+        dlms_apdu_buf[apdu_len++] = 0x02; /* 2 Columns */
 
-        if (tmp_date == 0 || tmp_date == 0xFFFFFFFF)
+        /* 1. Date and Time (Octet-String, 12 bytes) */
+        yr = ((unsigned int)stTamper_Profile.Tamper_Date[0] << 8) | stTamper_Profile.Tamper_Date[1];
+        mo = stTamper_Profile.Tamper_Date[2];
+        dy = stTamper_Profile.Tamper_Date[3];
+        hr = stTamper_Profile.Tamper_Date[5];
+        mn = stTamper_Profile.Tamper_Date[6];
+        sec = stTamper_Profile.Tamper_Date[7];
+
+        if (mo == 0 || mo > 12 || dy == 0 || dy > 31)
         {
             DLMS_Inject_Dummy_DateTime(&apdu_len);
         }
         else
         {
-            convt_utc(tmp_date);
-            yr = 2000 + (scratch1 % 100);
-            mo = (scratch1 / 100) % 100;
-            dy = (scratch1 / 10000);
-            hr = scratch / 100;
-            mn = scratch % 100;
-            DLMS_Inject_DateTime(&apdu_len, yr, mo, dy, hr, mn, 0);
+            DLMS_Inject_DateTime(&apdu_len, yr, mo, dy, hr, mn, sec);
         }
 
-        DLMS_Inject_Type12_Uint16(&apdu_len, ev_code);
-        *len_ptr = apdu_len;
-        return;
+        /* 2. Event Code (Uint16) */
+        DLMS_Inject_Type12_Uint16(&apdu_len, stTamper_Profile.Tamper_ID);
     }
-    /* 2. Handle Cover Open (Non-Rollover) Event */
-    else if (tx_event_type == 251)
-    {
-        loc = CUOPEN_LOC;
-        tmp_date = from_eeprom(loc + 1, 3);
-        tmp_time = from_eeprom(loc + 4, 3);
-        ev_code = 251;
-        ev_vrms = 0;
-        ev_irms = 0;
-        ev_pf = 0;
-        ev_kwh = 0;
-
-        dlms_apdu_buf[apdu_len++] = 0x02; /* Structure */
-        dlms_apdu_buf[apdu_len++] = 0x06; /* 6 Columns */
-
-        if (tmp_date == 0 || tmp_date == 0xFFFFFF)
-        {
-            DLMS_Inject_Dummy_DateTime(&apdu_len);
-        }
-        else
-        {
-            yr = 2000 + (tmp_date % 100);
-            mo = (tmp_date / 100) % 100;
-            dy = (tmp_date / 10000) % 100;
-            hr = tmp_time / 100;
-            mn = tmp_time % 100;
-            DLMS_Inject_DateTime(&apdu_len, yr, mo, dy, hr, mn, 0);
-        }
-
-        DLMS_Inject_Type12_Uint16(&apdu_len, ev_code);
-        DLMS_Inject_Type05_Uint32(&apdu_len, ev_irms);
-        DLMS_Inject_Type05_Uint32(&apdu_len, ev_vrms);
-        DLMS_Inject_Type05_Uint32(&apdu_len, ev_pf);
-        DLMS_Inject_Type05_Uint32(&apdu_len, ev_kwh * 10);
-        *len_ptr = apdu_len;
-        return;
-    }
-    /* 3. Handle Standard Tamper Events via Multiplexer Matrix */
     else
     {
-        running_row = row;
-
-        for (j = 0; j < 3; j++)
-        {
-            int_type = dlms_to_internal[tx_event_type][j];
-            if (int_type == 0xFF)
-                continue;
-
-            valid_count = 0;
-            for (i = 0; i < TAMPER_SIZE; i++)
-            {
-                loc = TAMPER_LOC + (int_type * 520) + (i * 26);
-                if (read_eeprom(loc) != 0 && read_eeprom(loc) != 0xFF)
-                    valid_count++;
-            }
-            is_active = (store_tamper_stat & (1 << int_type)) ? 1 : 0;
-            rows_for_this_type = (valid_count * 2) + is_active;
-
-            if (running_row < rows_for_this_type)
-            {
-                break;
-            }
-            running_row -= rows_for_this_type;
-        }
-
-        /* SAFETY FALLBACK*/
-        if (int_type == 0xFF)
-        {
-            dlms_apdu_buf[apdu_len++] = 0x02; /* Structure */
-            dlms_apdu_buf[apdu_len++] = 0x06; /* 6 Columns */
-            DLMS_Inject_Dummy_DateTime(&apdu_len);
-            DLMS_Inject_Type12_Uint16(&apdu_len, 0);
-            DLMS_Inject_Type05_Uint32(&apdu_len, 0);
-            DLMS_Inject_Type05_Uint32(&apdu_len, 0);
-            DLMS_Inject_Type05_Uint32(&apdu_len, 0);
-            DLMS_Inject_Type05_Uint32(&apdu_len, 0);
-            *len_ptr = apdu_len;
-            return;
-        }
-
-        if (is_active)
-        {
-            if (running_row == 0)
-            {
-                is_restoration = 0;
-                eeprom_record_idx = -1;
-            }
-            else
-            {
-                is_restoration = ((running_row - 1) % 2 == 0) ? 1 : 0;
-                eeprom_record_idx = (running_row - 1) / 2;
-            }
-        }
-        else
-        {
-            is_restoration = (running_row % 2 == 0) ? 1 : 0;
-            eeprom_record_idx = running_row / 2;
-        }
-
-        if (eeprom_record_idx == -1)
-        {
-            loc = INST_TAMPER_LOC + (int_type * 13);
-            tmp_date = from_eeprom(loc + 1, 4);
-            ev_vrms = from_eeprom(loc + 5, 2);
-            ev_irms = from_eeprom(loc + 7, 2);
-            ev_pf = read_eeprom(loc + 9);
-            ev_kwh = from_eeprom(loc + 10, 3);
-            ev_code = get_is15959_event_code(int_type, 0);
-        }
-        else
-        {
-            hist_idx = (tamper_pos[int_type] + TAMPER_SIZE - eeprom_record_idx) % TAMPER_SIZE;
-
-            loc = TAMPER_LOC + (int_type * 520) + (hist_idx * 26);
-            if (is_restoration)
-            {
-                tmp_date = from_eeprom(loc + 14, 4);
-                ev_vrms = from_eeprom(loc + 18, 2);
-                ev_irms = from_eeprom(loc + 20, 2);
-                ev_pf = read_eeprom(loc + 22);
-                ev_kwh = from_eeprom(loc + 23, 3);
-                ev_code = get_is15959_event_code(int_type, 1);
-            }
-            else
-            {
-                tmp_date = from_eeprom(loc + 1, 4);
-                ev_vrms = from_eeprom(loc + 5, 2);
-                ev_irms = from_eeprom(loc + 7, 2);
-                ev_pf = read_eeprom(loc + 9);
-                ev_kwh = from_eeprom(loc + 10, 3);
-                ev_code = get_is15959_event_code(int_type, 0);
-            }
-        }
-
+        /* --- 6 Columns: Voltage (0), Current (1), Others (4), Non-Roll (5) --- */
         dlms_apdu_buf[apdu_len++] = 0x02; /* Structure */
         dlms_apdu_buf[apdu_len++] = 0x06; /* 6 Columns */
 
-        if (tmp_date == 0 || tmp_date == 0xFFFFFFFF)
+        /* 1. Date and Time (Octet-String, 12 bytes) */
+        yr = ((unsigned int)stTamper_Profile.Tamper_Date[0] << 8) | stTamper_Profile.Tamper_Date[1];
+        mo = stTamper_Profile.Tamper_Date[2];
+        dy = stTamper_Profile.Tamper_Date[3];
+        hr = stTamper_Profile.Tamper_Date[5];
+        mn = stTamper_Profile.Tamper_Date[6];
+        sec = stTamper_Profile.Tamper_Date[7];
+
+        if (mo == 0 || mo > 12 || dy == 0 || dy > 31)
         {
             DLMS_Inject_Dummy_DateTime(&apdu_len);
         }
         else
         {
-            convt_utc(tmp_date);
-            yr = 2000 + (scratch1 % 100);
-            mo = (scratch1 / 100) % 100;
-            dy = (scratch1 / 10000);
-            hr = scratch / 100;
-            mn = scratch % 100;
-            DLMS_Inject_DateTime(&apdu_len, yr, mo, dy, hr, mn, 0);
+            DLMS_Inject_DateTime(&apdu_len, yr, mo, dy, hr, mn, sec);
         }
 
-        DLMS_Inject_Type12_Uint16(&apdu_len, ev_code);
-        DLMS_Inject_Type05_Uint32(&apdu_len, ev_irms);
-        DLMS_Inject_Type05_Uint32(&apdu_len, ev_vrms);
-        DLMS_Inject_Type05_Uint32(&apdu_len, ev_pf);
-        DLMS_Inject_Type05_Uint32(&apdu_len, ev_kwh * 10);
+        /* 2. Event Code (Uint16) */
+        DLMS_Inject_Type12_Uint16(&apdu_len, stTamper_Profile.Tamper_ID);
 
-        *len_ptr = apdu_len;
+        /* 3. Current (mA, Scaler -3) */
+        DLMS_Inject_Type05_Uint32(&apdu_len, (unsigned long)stTamper_Profile.Irms);
+
+        /* 4. Voltage (0.1 V, Scaler -1) */
+        DLMS_Inject_Type05_Uint32(&apdu_len, (unsigned long)stTamper_Profile.Vrms);
+
+        /* 5. Power Factor (Scaler -2, e.g., 100 = 1.00) */
+        DLMS_Inject_Type05_Uint32(&apdu_len, (unsigned long)stTamper_Profile.PF);
+
+        /* 6. Cumulative Active Energy (Wh, Scaler 0) - load_val is 10 Wh * 10 = Wh */
+        DLMS_Inject_Type05_Uint32(&apdu_len, (unsigned long)stTamper_Profile.E_Active * 10);
     }
+
+    *len_ptr = apdu_len;
 }
 
 /* Fills dlms_apdu_buf with one Get-Response block of event-log rows and sends it, or arms tx_is_dynamic for the next GetNextBlock request */
@@ -727,11 +574,12 @@ static void DLMS_Append_BlockLoad_Row(unsigned int *len_ptr, int row)
 {
     unsigned int apdu_len = *len_ptr;
     unsigned int yr;
+    unsigned char mo, dy, hr, mn, sec;
 
     dlms_apdu_buf[apdu_len++] = 0x02; /* Structure */
-    dlms_apdu_buf[apdu_len++] = 0x05; /* 5 Columns */
+    dlms_apdu_buf[apdu_len++] = 0x05; /* 5 Columns: Clock, V, Act Power, App Power, I */
 
-    if (g_Class07_Blockload_EntriesInUse == 0)
+    if (Load_Profile_Entries_In_Use == 0)
     {
         DLMS_Inject_Dummy_DateTime(&apdu_len);
         DLMS_Inject_Type12_Uint16(&apdu_len, 0);
@@ -742,33 +590,38 @@ static void DLMS_Append_BlockLoad_Row(unsigned int *len_ptr, int row)
         return;
     }
 
-    /* 1. CALL YOUR REFERENCE FUNCTION TO LOAD THE BUFFER */
-    get_lp_data((unsigned int)row);
+    /* 1. Fetch record from EEPROM into stLoad_Profile */
+    /* row is 0-indexed (0 = newest). get_lp_data expects 1-indexed (1 = newest) */
+    get_lp_data((unsigned int)(row + 1));
 
-    /* 2. INJECT THE CLOCK FROM STRUCT */
-    if (g_Class07_BlockLoadBuffer.clock_value.year_high == 0xFF)
+    /* 2. Validate and inject timestamp from stLoad_Profile.Load_Date */
+    yr = ((unsigned int)stLoad_Profile.Load_Date[0] << 8) | stLoad_Profile.Load_Date[1];
+    mo = stLoad_Profile.Load_Date[2];
+    dy = stLoad_Profile.Load_Date[3];
+    hr = stLoad_Profile.Load_Date[5];
+    mn = stLoad_Profile.Load_Date[6];
+    sec = stLoad_Profile.Load_Date[7];
+
+    if (mo == 0 || mo > 12 || dy == 0 || dy > 31)
     {
         DLMS_Inject_Dummy_DateTime(&apdu_len);
     }
     else
     {
-        yr = (g_Class07_BlockLoadBuffer.clock_value.year_high << 8) | g_Class07_BlockLoadBuffer.clock_value.year_low;
-        DLMS_Inject_DateTime(&apdu_len, yr,
-                             g_Class07_BlockLoadBuffer.clock_value.month,
-                             g_Class07_BlockLoadBuffer.clock_value.day_of_month,
-                             g_Class07_BlockLoadBuffer.clock_value.hour,
-                             g_Class07_BlockLoadBuffer.clock_value.minute, 0);
+        DLMS_Inject_DateTime(&apdu_len, yr, mo, dy, hr, mn, sec);
     }
 
-    /* 3. INJECT THE VALUES DIRECTLY FROM YOUR UNPACKED STRUCT */
-    /* Vrms (Uint16) */
-    DLMS_Inject_Type12_Uint16(&apdu_len, g_Class07_BlockLoadBuffer.voltage_value);
-    /* Block Active Energy Wh (Uint32) */
-    DLMS_Inject_Type05_Uint32(&apdu_len, (unsigned long)g_Class07_BlockLoadBuffer.kWh_value);
-    /* Block Apparent Energy VAh (Uint32) */
-    DLMS_Inject_Type05_Uint32(&apdu_len, (unsigned long)g_Class07_BlockLoadBuffer.kVAh_value);
-    /* Current (Uint32) */
-    DLMS_Inject_Type05_Uint32(&apdu_len, (unsigned long)g_Class07_BlockLoadBuffer.current_value);
+    /* 3. Column 2: Average Voltage (0.1 V, Scaler -1) */
+    DLMS_Inject_Type12_Uint16(&apdu_len, stLoad_Profile.Vrms);
+
+    /* 4. Column 3: Block Active Energy Wh (10 Wh units * 10 = Wh, Scaler 0) */
+    DLMS_Inject_Type05_Uint32(&apdu_len, (unsigned long)stLoad_Profile.E_Active * 10);
+
+    /* 5. Column 4: Block Apparent Energy VAh (10 VAh units * 10 = VAh, Scaler 0) */
+    DLMS_Inject_Type05_Uint32(&apdu_len, (unsigned long)stLoad_Profile.E_Apparent * 10);
+
+    /* 6. Column 5: Average Current (mA, Scaler -3) */
+    DLMS_Inject_Type05_Uint32(&apdu_len, (unsigned long)stLoad_Profile.Irms);
 
     *len_ptr = apdu_len;
 }
@@ -873,47 +726,45 @@ static void DLMS_Append_Daily_Row(unsigned int *len_ptr, int row)
 {
     unsigned int apdu_len = *len_ptr;
     unsigned int hist_idx;
-    unsigned long tmp_date, tmp_kwh, tmp_kvah;
+    unsigned long loc;
+    unsigned long tmp_packed_date;
+    unsigned long tmp_kwh, tmp_kvah;
     unsigned int yr;
     unsigned char mo, dy;
 
-    if (day_pos == 0)
-    {
-        hist_idx = 364 - row;
-    }
-    else
-    {
-        if (row < day_pos)
-            hist_idx = day_pos - 1 - row;
-        else
-            hist_idx = 365 - (row - day_pos) - 1;
-    }
+    /* Circular buffer indexing: row 0 is the most recently recorded day */
+    hist_idx = (day_pos + Daily_Load_Profile_Entries - 1 - row) % Daily_Load_Profile_Entries;
+    loc = DAILY_SURVEY_LOC + (hist_idx * 11);
 
-    tmp_date = from_eeprom(LOAD_DATE_LOC + (hist_idx * 3), 3);
-    tmp_kwh = from_eeprom(DAILY_SURVEY_LOC + (hist_idx * 3), 3);
-    tmp_kvah = from_eeprom(DAILY_SURVEY_KVAH_LOC + (hist_idx * 3), 3);
+    /* Read 11-byte record: 3 bytes Date, 4 bytes kWh, 4 bytes kVAh */
+    tmp_packed_date = from_eeprom(loc, 3);
+    tmp_kwh = from_eeprom(loc + 3, 4);
+    tmp_kvah = from_eeprom(loc + 7, 4);
 
     dlms_apdu_buf[apdu_len++] = 0x02; /* Structure */
-    dlms_apdu_buf[apdu_len++] = 0x03; /* 3 Columns */
+    dlms_apdu_buf[apdu_len++] = 0x03; /* 3 Columns: Clock, Act Energy, App Energy */
 
-    /* 1. Clock */
-    if (tmp_date == 0)
+    /* 1. Unpack Date stored as: ((Year * 13) + Month) * 32 + Day */
+    if (tmp_packed_date == 0 || tmp_packed_date == 0xFFFFFF)
     {
         DLMS_Inject_Dummy_DateTime(&apdu_len);
     }
     else
     {
-        yr = 2000 + (tmp_date % 100);
-        mo = (tmp_date / 100) % 100;
-        dy = (tmp_date / 10000) % 100;
-        DLMS_Inject_DateTime(&apdu_len, yr, mo, dy, 0, 0, 0); /* Midnight */
+        dy = tmp_packed_date % 32;
+        tmp_packed_date /= 32;
+        mo = tmp_packed_date % 13;
+        yr = 2000 + (tmp_packed_date / 13);
+
+        /* Daily snapshot is captured at midnight (00:00:00) */
+        DLMS_Inject_DateTime(&apdu_len, yr, mo, dy, 0, 0, 0);
     }
 
-    /* 2 to 3. EEPROM Values */
-    DLMS_Inject_Type05_Uint32(&apdu_len, tmp_kwh * 10); /* Act Energy */
+    /* 2. Cumulative Active Energy (Wh) - load_val is in 10 Wh units */
+    DLMS_Inject_Type05_Uint32(&apdu_len, tmp_kwh * 10);
 
-    /* Inject the historical Apparent Energy instead of 0 */
-    DLMS_Inject_Type05_Uint32(&apdu_len, tmp_kvah * 10); /* App Energy */
+    /* 3. Cumulative Apparent Energy (VAh) */
+    DLMS_Inject_Type05_Uint32(&apdu_len, tmp_kvah * 10);
 
     *len_ptr = apdu_len;
 }
@@ -1256,15 +1107,15 @@ static const unsigned char block_scalar_attr2_buf[] = {
     0x02, 0x02, 0x0F, 0xFF, 0x16, 0x23, /* V (-1) */
     0x02, 0x02, 0x0F, 0x00, 0x16, 0x1E, /* Wh (0) */
     0x02, 0x02, 0x0F, 0x00, 0x16, 0x1F, /* VAh (0) */
-    0x02, 0x02, 0x0F, 0xFE, 0x16, 0x21  /* A (-2) */
+    0x02, 0x02, 0x0F, 0xFD, 0x16, 0x21  /* A (-3)  */
 };
 
 static const unsigned char event_scalar_attr2_buf[] = {
     0x01, 0x01, 0x02, 0x04,             /* Array, 1 row, struct, 4 cols */
-    0x02, 0x02, 0x0F, 0xFE, 0x16, 0x21, /* Active Current (-2, Amperes) */
-    0x02, 0x02, 0x0F, 0xFF, 0x16, 0x23, /* V (-1) */
-    0x02, 0x02, 0x0F, 0xFE, 0x16, 0xFF, /* PF (-2, Unitless) */
-    0x02, 0x02, 0x0F, 0x00, 0x16, 0x1E  /* Wh (0) */
+    0x02, 0x02, 0x0F, 0xFD, 0x16, 0x21, /* Active Current (-3, Amperes) */
+    0x02, 0x02, 0x0F, 0xFF, 0x16, 0x23, /* Voltage (-1) */
+    0x02, 0x02, 0x0F, 0xFE, 0x16, 0xFF, /* Power Factor (-2, Unitless) */
+    0x02, 0x02, 0x0F, 0x00, 0x16, 0x1E  /* Active Energy (0, Wh) */
 };
 /* Handles all Class 7 (Profile Generic) GET requests: OBIS routing for
  * every profile (instantaneous, billing, block-load, daily-survey, event
@@ -1738,9 +1589,9 @@ DLMS_Class7_Result_t DLMS_Meter_ProcessClass7Get(unsigned char client, unsigned 
     /* Block Load Profile: 1.0.99.1.0.255 */
     else if (obis[0] == 1 && obis[1] == 0 && obis[2] == 99 && obis[3] == 1 && obis[4] == 0)
     {
-        if (attr == 2)
+        if (attr == 2) /* Buffer */
         {
-            tx_block_total_rows = g_Class07_Blockload_EntriesInUse;
+            tx_block_total_rows = Load_Profile_Entries_In_Use;
             tx_block_curr_row = 0;
             tx_is_dynamic = 4; /* 4 = Block Load Profile Engine */
             tx_blk_num = 1;
@@ -1752,12 +1603,9 @@ DLMS_Class7_Result_t DLMS_Meter_ProcessClass7Get(unsigned char client, unsigned 
             *apdu_len_ptr = apdu_len;
             return DLMS_CLASS7_RESULT_ALREADY_SENT;
         }
-        else if (attr == 7 || attr == 8)
+        else if (attr == 7 || attr == 8) /* Entries in Use (7) & Max Capacity (8) */
         {
-            /* Attr 8 = Max Capacity, Attr 7 = Current Entries In Use */
-            unsigned long return_val = (attr == 8) ? g_Class07_Blockload_MaxEntries : g_Class07_Blockload_EntriesInUse;
-            if (return_val == 0)
-                return_val = 1; /* Safety fallback */
+            unsigned long return_val = (attr == 8) ? Load_Profile_Entries : Load_Profile_Entries_In_Use;
 
             dlms_apdu_buf[apdu_len++] = 0x06; /* uint32 */
             dlms_apdu_buf[apdu_len++] = (return_val >> 24) & 0xFF;
@@ -1767,7 +1615,8 @@ DLMS_Class7_Result_t DLMS_Meter_ProcessClass7Get(unsigned char client, unsigned 
         }
         else
         {
-            if (!DLMS_Build_Class7_Metadata(&apdu_len, attr, 1800, 0x05, block_capture_objs, sizeof(block_capture_objs), 1))
+            unsigned long capture_period_sec = (survey_intgr_val > 0) ? (survey_intgr_val * 60) : 1800;
+            if (!DLMS_Build_Class7_Metadata(&apdu_len, attr, capture_period_sec, 0x05, block_capture_objs, sizeof(block_capture_objs), Load_Profile_Entries_In_Use))
             {
                 return DLMS_CLASS7_RESULT_REJECT;
             }
@@ -1779,8 +1628,12 @@ DLMS_Class7_Result_t DLMS_Meter_ProcessClass7Get(unsigned char client, unsigned 
     {
         if (attr == 2) /* Buffer */
         {
-            unsigned long last_date = from_eeprom(LOAD_DATE_LOC + (364 * 3), 3);
-            tx_daily_total_rows = (last_date != 0) ? 365 : day_pos;
+            tx_daily_total_rows = Daily_Load_Profile_Entries_In_Use;
+            if (tx_daily_total_rows == 0 && day_pos > 0)
+            {
+                tx_daily_total_rows = day_pos;
+            }
+
             tx_daily_curr_row = 0;
             tx_is_dynamic = 2; /* 2 = Daily Profile Engine */
             tx_blk_num = 1;
@@ -1792,20 +1645,13 @@ DLMS_Class7_Result_t DLMS_Meter_ProcessClass7Get(unsigned char client, unsigned 
             *apdu_len_ptr = apdu_len;
             return DLMS_CLASS7_RESULT_ALREADY_SENT;
         }
-        else if (attr == 7 || attr == 8) /* Entries In Use & Max Capacity */
+        else if (attr == 7 || attr == 8) /* Entries In Use (7) & Max Capacity (8) */
         {
-            unsigned long last_date = from_eeprom(LOAD_DATE_LOC + (364 * 3), 3);
-            unsigned int t_rows = (last_date != 0) ? 365 : day_pos;
-            unsigned int return_val;
-
-            if (t_rows == 0)
-                t_rows = 1;
-
-            return_val = (attr == 8) ? 365 : t_rows;
+            unsigned long return_val = (attr == 8) ? Daily_Load_Profile_Entries : Daily_Load_Profile_Entries_In_Use;
 
             dlms_apdu_buf[apdu_len++] = 0x06; /* double-long-unsigned */
-            dlms_apdu_buf[apdu_len++] = 0;
-            dlms_apdu_buf[apdu_len++] = 0;
+            dlms_apdu_buf[apdu_len++] = (return_val >> 24) & 0xFF;
+            dlms_apdu_buf[apdu_len++] = (return_val >> 16) & 0xFF;
             dlms_apdu_buf[apdu_len++] = (return_val >> 8) & 0xFF;
             dlms_apdu_buf[apdu_len++] = return_val & 0xFF;
         }
@@ -1821,81 +1667,18 @@ DLMS_Class7_Result_t DLMS_Meter_ProcessClass7Get(unsigned char client, unsigned 
     /* Event Profiles: 0.0.99.98.x.255 */
     else if (obis[0] == 0 && obis[1] == 0 && obis[2] == 99 && obis[3] == 98)
     {
-        unsigned char valid_count;
-        unsigned int loc;
-        unsigned int return_val;
-        unsigned char is_active;
-        unsigned int total_dlms_rows = 0;
-        unsigned char dlms_prof = obis[4];
-        unsigned char evt;
+        unsigned char event_type = obis[4]; /* 0..6 directly matches firmware event types */
 
-        if (dlms_prof == 3)
+        if (event_type > 6)
         {
-            tx_event_type = 100;
-            valid_count = 0;
-            for (i = 0; i < CONFIG_EVENT_SIZE; i++)
-            {
-                loc = CONFIG_EVENT_LOC + (i * 26);
-                if (read_eeprom(loc + 1) != 0 && read_eeprom(loc + 1) != 0xFF)
-                    valid_count++;
-            }
-            total_dlms_rows = valid_count;
-        }
-        else if (dlms_prof == 2)
-        {
-            tx_event_type = 200;
-            valid_count = 0;
-            for (i = 0; i < DLMS_PFAIL_EVENT_SIZE; i++)
-            {
-                loc = DLMS_PFAIL_EVENT_LOC + (i * 6);
-                if (read_eeprom(loc + 1) != 0 && read_eeprom(loc + 1) != 0xFF)
-                    valid_count++;
-            }
-            total_dlms_rows = valid_count;
-        }
-        else if (dlms_prof == 5)
-        {
-            tx_event_type = 251;
-            /* Cover open uses a single 8-byte buffer in EEPROM */
-            if (read_eeprom(CUOPEN_LOC) == 1 || from_eeprom(CUOPEN_LOC + 1, 3) != 0)
-                total_dlms_rows = 1;
-            else
-                total_dlms_rows = 0;
-        }
-        else if (dlms_prof == 0 || dlms_prof == 1 || dlms_prof == 4)
-        {
-            tx_event_type = dlms_prof;
-            total_dlms_rows = 0;
-            for (j = 0; j < 3; j++)
-            {
-                unsigned char int_type = dlms_to_internal[dlms_prof][j];
-                if (int_type == 0xFF)
-                    continue;
-
-                valid_count = 0;
-                for (i = 0; i < TAMPER_SIZE; i++)
-                {
-                    loc = TAMPER_LOC + (int_type * 520) + (i * 26);
-                    if (read_eeprom(loc) != 0 && read_eeprom(loc) != 0xFF)
-                        valid_count++;
-                }
-                is_active = (store_tamper_stat & (1 << int_type)) ? 1 : 0;
-                total_dlms_rows += (valid_count * 2) + is_active;
-            }
-        }
-        else
-        {
-            tx_event_type = 99;
-            total_dlms_rows = 0;
+            return DLMS_CLASS7_RESULT_REJECT;
         }
 
-        evt = tx_event_type; /* <--- Sync old 'evt' code with 'tx_event_type' */
-
-        if (attr == 2)
+        if (attr == 2) /* Buffer */
         {
-            tx_event_total_rows = total_dlms_rows;
+            tx_event_total_rows = Tamper_Profile_Entries_In_Use[event_type];
             tx_event_curr_row = 0;
-            tx_event_type = evt;
+            tx_event_type = event_type;
 
             tx_is_dynamic = 3; /* 3 = Event Profile Engine */
             tx_blk_num = 1;
@@ -1907,42 +1690,32 @@ DLMS_Class7_Result_t DLMS_Meter_ProcessClass7Get(unsigned char client, unsigned 
             *apdu_len_ptr = apdu_len;
             return DLMS_CLASS7_RESULT_ALREADY_SENT;
         }
-        else if (attr == 7 || attr == 8)
+        else if (attr == 7 || attr == 8) /* Entries In Use (7) & Max Capacity (8) */
         {
-            if (evt == 100)
-            {
-                return_val = (attr == 8) ? CONFIG_EVENT_SIZE : total_dlms_rows;
-            }
-            else if (evt == 200)
-            {
-                return_val = (attr == 8) ? DLMS_PFAIL_EVENT_SIZE : total_dlms_rows;
-            }
-            else
-            {
-                return_val = (attr == 8) ? (TAMPER_SIZE * 2) : total_dlms_rows;
-            }
+            unsigned long return_val = (attr == 8) ? Tamper_Profile_Entries[event_type]
+                                                   : Tamper_Profile_Entries_In_Use[event_type];
 
             dlms_apdu_buf[apdu_len++] = 0x06; /* double-long-unsigned */
-            dlms_apdu_buf[apdu_len++] = 0;
-            dlms_apdu_buf[apdu_len++] = 0;
+            dlms_apdu_buf[apdu_len++] = (return_val >> 24) & 0xFF;
+            dlms_apdu_buf[apdu_len++] = (return_val >> 16) & 0xFF;
             dlms_apdu_buf[apdu_len++] = (return_val >> 8) & 0xFF;
             dlms_apdu_buf[apdu_len++] = return_val & 0xFF;
         }
         else
         {
-            if (evt == 100)
+            if (event_type == 2) /* Power Fail (2 Columns) */
             {
-                if (!DLMS_Build_Class7_Metadata(&apdu_len, attr, 0, 0x02, transaction_capture_objs, sizeof(transaction_capture_objs), 1))
+                if (!DLMS_Build_Class7_Metadata(&apdu_len, attr, 0, 0x02, pfail_capture_objs, sizeof(pfail_capture_objs), Tamper_Profile_Entries_In_Use[event_type]))
                     return DLMS_CLASS7_RESULT_REJECT;
             }
-            else if (evt == 200)
+            else if (event_type == 3) /* Transaction (2 Columns) */
             {
-                if (!DLMS_Build_Class7_Metadata(&apdu_len, attr, 0, 0x02, pfail_capture_objs, sizeof(pfail_capture_objs), 1))
+                if (!DLMS_Build_Class7_Metadata(&apdu_len, attr, 0, 0x02, transaction_capture_objs, sizeof(transaction_capture_objs), Tamper_Profile_Entries_In_Use[event_type]))
                     return DLMS_CLASS7_RESULT_REJECT;
             }
-            else
+            else /* Voltage (0), Current (1), Others (4), Non-Rollover (5) (6 Columns) */
             {
-                if (!DLMS_Build_Class7_Metadata(&apdu_len, attr, 0, 0x06, event_capture_objs, sizeof(event_capture_objs), 1))
+                if (!DLMS_Build_Class7_Metadata(&apdu_len, attr, 0, 0x06, event_capture_objs, sizeof(event_capture_objs), Tamper_Profile_Entries_In_Use[event_type]))
                     return DLMS_CLASS7_RESULT_REJECT;
             }
         }
