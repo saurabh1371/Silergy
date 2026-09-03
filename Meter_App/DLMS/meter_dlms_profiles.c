@@ -59,8 +59,8 @@
 #define BILL_HOUR_LOC BILL_TIME_LOC
 #define BILL_MINUTE_LOC (BILL_TIME_LOC + 1)
 #define SPEC_BILL_LOC SCHEDULED_BILL_DAY_LOC
-#define last_stored_tod_kwh_val last_hr_load_val[0]
-#define last_stored_tod_kvah_val last_hr_load_val[1]
+// #define last_stored_tod_kwh_val last_hr_load_val[0]
+// #define last_stored_tod_kvah_val last_hr_load_val[1]
 
 // Profile Generic mappings
 #define LOAD_DATE_LOC DAILY_SURVEY_LOC
@@ -133,12 +133,12 @@ void DLMS_Inject_EEPROM_Date(unsigned int *len_ptr, unsigned long check_val, uns
 static void DLMS_Append_Billing_Row(unsigned int *len_ptr, int row)
 {
     unsigned int apdu_len = *len_ptr;
-    unsigned int loc_kwmd, loc_kvamd;
+    unsigned int loc_kwmd, loc_kvamd, loc_tod;
     unsigned long tmp_date, tmp_kwh, tmp_kvah, tmp_kwmd, tmp_kvamd;
     unsigned int tmp_pf, yr, tmp_md_tm, hist_idx;
     unsigned char mo, dy, hr, mn;
     int i;
-    unsigned long tz_kwh;
+    unsigned long tz_energy;
     unsigned int hist_ontime;
 
     dlms_apdu_buf[apdu_len++] = 0x02; /* Structure */
@@ -146,84 +146,78 @@ static void DLMS_Append_Billing_Row(unsigned int *len_ptr, int row)
 
     if (row == 0)
     {
-        /* Live / Current Month */
+        /* 1. Live Timestamp */
         DLMS_Inject_DateTime(&apdu_len, 2000 + d_yr, d_mnth, d_day, t_hr, t_min, t_sec);
 
-        /* Inside DLMS_Append_Billing_Row (row == 0) */
+        /* 2. Cumulative Active Energy (Wh) */
         DLMS_Inject_Type05_Uint32(&apdu_len, load_val[0] * 10);
 
+        /* 3 to 10. Active Energy TZ1 to TZ8 (Wh) */
         for (i = 0; i < 8; i++)
         {
-            tz_kwh = 0;
-            if (i < TOD_SIZE)
-            {
-                /* 1. Read the saved baseline from EEPROM */
-                tz_kwh = from_eeprom(TOD_KWMD_LOC + (mnth_pos * (TOD_SIZE * 9)) + (i * 9), 3);
+            loc_tod = TOD_KWMD_LOC + (mnth_pos * 88) + (i * 11);
+            tz_energy = from_eeprom(loc_tod, 4);
 
-                /* Only apply this to the currently active Time Zone! */
-                if (i == t_prev_zone)
+            /* Add live delta for currently active TOD slot */
+            if (i == t_prev_zone)
+            {
+                if (load_val[0] > last_stored_tod_load_val[0])
                 {
-                    if (load_val[0] > last_stored_tod_kwh_val)
-                    {
-                        tz_kwh = tz_kwh + (load_val[0] - last_stored_tod_kwh_val);
-                    }
+                    tz_energy += (load_val[0] - last_stored_tod_load_val[0]);
                 }
             }
-            DLMS_Inject_Type05_Uint32(&apdu_len, tz_kwh * 10);
+            DLMS_Inject_Type05_Uint32(&apdu_len, tz_energy * 10);
         }
 
-        /* Live Apparent Energy (kVAh) */
+        /* 11. Cumulative Apparent Energy (VAh) */
         DLMS_Inject_Type05_Uint32(&apdu_len, load_val[1] * 10);
+
+        /* 12 to 19. Apparent Energy TZ1 to TZ8 (VAh) */
         for (i = 0; i < 8; i++)
         {
-            tz_kwh = 0;
-            if (i < TOD_SIZE)
+            loc_tod = TOD_KVAMD_LOC + (mnth_pos * 88) + (i * 11);
+            tz_energy = from_eeprom(loc_tod, 4);
+
+            /* Add live delta for currently active TOD slot */
+            if (i == t_prev_zone)
             {
-                tz_kwh = from_eeprom(TOD_KVAMD_LOC + (mnth_pos * (TOD_SIZE * 9)) + (i * 9), 3);
-                if (i == t_prev_zone)
+                if (load_val[1] > last_stored_tod_load_val[1])
                 {
-                    if (load_val[1] > last_stored_tod_kvah_val)
-                        tz_kwh = tz_kwh + (load_val[1] - last_stored_tod_kvah_val);
+                    tz_energy += (load_val[1] - last_stored_tod_load_val[1]);
                 }
             }
-            DLMS_Inject_Type05_Uint32(&apdu_len, tz_kwh * 10);
+            DLMS_Inject_Type05_Uint32(&apdu_len, tz_energy * 10);
         }
+
+        /* 20 & 21. Total Active MD (W) & Time */
         DLMS_Inject_Type05_Uint32(&apdu_len, kwmd_val);
+        DLMS_Inject_EEPROM_Date(&apdu_len, kwmd_val, kwmd_date, kwmd_time);
 
-        loc_kwmd = KWMD_LOC + (mnth_pos * 21);
-        tmp_date = from_eeprom(loc_kwmd + 9, 3);
-        tmp_md_tm = from_eeprom(loc_kwmd + 12, 2);
-
-        DLMS_Inject_EEPROM_Date(&apdu_len, kwmd_val, tmp_date, tmp_md_tm);
-
+        /* 22 & 23. Total Apparent MD (VA) & Time */
         DLMS_Inject_Type05_Uint32(&apdu_len, kvamd_val);
+        DLMS_Inject_EEPROM_Date(&apdu_len, kvamd_val, kvamd_date, kvamd_time);
 
-        loc_kvamd = KVAMD_LOC + (mnth_pos * 10);
-        tmp_date = from_eeprom(loc_kvamd + 5, 3);
-        tmp_md_tm = from_eeprom(loc_kvamd + 8, 2);
+        /* 24. Billing Power ON Duration (Minutes - NO multiplication) */
+        DLMS_Inject_Type05_Uint32(&apdu_len, reset_on_time);
 
-        DLMS_Inject_EEPROM_Date(&apdu_len, kvamd_val, tmp_date, tmp_md_tm);
-
-        /* Billing Power ON Duration (ontime * 6 converts it to minutes) */
-        DLMS_Inject_Type05_Uint32(&apdu_len, ontime * 6);
-
-        /* Average Power Factor */
+        /* 25. Average Power Factor */
         DLMS_Inject_Type12_Uint16(&apdu_len, avg_pf);
     }
     else
     {
-        /* Historical Months */
+        /* Historical Billing Months */
         hist_idx = (mnth_pos + HISTORY_SIZE - row) % HISTORY_SIZE;
-        loc_kwmd = KWMD_LOC + (hist_idx * 19);
-        loc_kvamd = KVAMD_LOC + (hist_idx * 11);
+        loc_kwmd = KWMD_LOC + (hist_idx * 19);   /* 19-byte stride */
+        loc_kvamd = KVAMD_LOC + (hist_idx * 11); /* 11-byte stride */
 
         tmp_date = from_eeprom(loc_kwmd, 3);
-        tmp_kwh = from_eeprom(loc_kwmd + 5, 4);
-        tmp_kwmd = from_eeprom(loc_kwmd + 9, 2);
-        tmp_pf = read_eeprom(loc_kwmd + 18);
-        tmp_kvah = from_eeprom(loc_kvamd, 4);
-        tmp_kvamd = from_eeprom(loc_kvamd + 4, 2);
+        tmp_kwh = from_eeprom(loc_kwmd + 5, 4);    /* Active Energy (4 bytes) */
+        tmp_kwmd = from_eeprom(loc_kwmd + 9, 2);   /* KW MD */
+        tmp_pf = read_eeprom(loc_kwmd + 18);       /* PF */
+        tmp_kvah = from_eeprom(loc_kvamd, 4);      /* Apparent Energy (4 bytes) */
+        tmp_kvamd = from_eeprom(loc_kvamd + 4, 2); /* KVA MD */
 
+        /* 1. Billing Timestamp */
         if (tmp_date == 0)
         {
             DLMS_Inject_Dummy_DateTime(&apdu_len);
@@ -233,53 +227,54 @@ static void DLMS_Append_Billing_Row(unsigned int *len_ptr, int row)
             yr = 2000 + (tmp_date % 100);
             mo = (tmp_date / 100) % 100;
             dy = (tmp_date / 10000) % 100;
-            /* === READ EXACT HISTORICAL TIME === */
             hr = read_eeprom(HIST_BILL_TIME_LOC + (hist_idx * 2));
             mn = read_eeprom(HIST_BILL_TIME_LOC + (hist_idx * 2) + 1);
             if (hr > 23)
-                hr = 0; /* Safety fallback for empty EEPROM */
+                hr = 0;
             if (mn > 59)
                 mn = 0;
             DLMS_Inject_DateTime(&apdu_len, yr, mo, dy, hr, mn, 0);
         }
 
+        /* 2. Cumulative Active Energy (Wh) */
         DLMS_Inject_Type05_Uint32(&apdu_len, tmp_kwh * 10);
+
+        /* 3 to 10. Historical Active Energy TZ1 to TZ8 (Wh) */
         for (i = 0; i < 8; i++)
         {
-            tz_kwh = 0;
-            if (i < TOD_SIZE)
-                tz_kwh = from_eeprom(TOD_KWMD_LOC + (hist_idx * (TOD_SIZE * 9)) + (i * 9), 3);
-            DLMS_Inject_Type05_Uint32(&apdu_len, tz_kwh * 10);
+            loc_tod = TOD_KWMD_LOC + (hist_idx * 88) + (i * 11);
+            tz_energy = from_eeprom(loc_tod, 4);
+            DLMS_Inject_Type05_Uint32(&apdu_len, tz_energy * 10);
         }
 
-        /* Historical Apparent Energy (kVAh) */
+        /* 11. Cumulative Apparent Energy (VAh) */
         DLMS_Inject_Type05_Uint32(&apdu_len, tmp_kvah * 10);
+
+        /* 12 to 19. Historical Apparent Energy TZ1 to TZ8 (VAh) */
         for (i = 0; i < 8; i++)
         {
-            tz_kwh = 0;
-            if (i < TOD_SIZE)
-                tz_kwh = from_eeprom(TOD_KVAMD_LOC + (hist_idx * (TOD_SIZE * 9)) + (i * 9), 3);
-            DLMS_Inject_Type05_Uint32(&apdu_len, tz_kwh * 10);
+            loc_tod = TOD_KVAMD_LOC + (hist_idx * 88) + (i * 11);
+            tz_energy = from_eeprom(loc_tod, 4);
+            DLMS_Inject_Type05_Uint32(&apdu_len, tz_energy * 10);
         }
-        DLMS_Inject_Type05_Uint32(&apdu_len, tmp_kwmd);
 
+        /* 20 & 21. Historical Active MD & Time */
+        DLMS_Inject_Type05_Uint32(&apdu_len, tmp_kwmd);
         tmp_date = from_eeprom(loc_kwmd + 11, 3);
         tmp_md_tm = from_eeprom(loc_kwmd + 14, 2);
-
         DLMS_Inject_EEPROM_Date(&apdu_len, tmp_kwmd, tmp_date, tmp_md_tm);
 
+        /* 22 & 23. Historical Apparent MD & Time */
         DLMS_Inject_Type05_Uint32(&apdu_len, tmp_kvamd);
-
         tmp_date = from_eeprom(loc_kvamd + 6, 3);
         tmp_md_tm = from_eeprom(loc_kvamd + 9, 2);
-
         DLMS_Inject_EEPROM_Date(&apdu_len, tmp_kvamd, tmp_date, tmp_md_tm);
 
-        /* Billing Power ON Duration */
-        hist_ontime = from_eeprom(loc_kwmd + 17, 2);
-        DLMS_Inject_Type05_Uint32(&apdu_len, hist_ontime * 6);
+        /* 24. Billing Power ON Duration (Minutes at offset +16) */
+        hist_ontime = from_eeprom(loc_kwmd + 16, 2);
+        DLMS_Inject_Type05_Uint32(&apdu_len, hist_ontime);
 
-        /* Average Power Factor */
+        /* 25. Average Power Factor */
         DLMS_Inject_Type12_Uint16(&apdu_len, tmp_pf);
     }
     *len_ptr = apdu_len;

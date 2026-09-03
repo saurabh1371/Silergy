@@ -16,52 +16,52 @@
 #include "dlms_api.h"
 
 // --- SILERGY-TO-RENESAS TRANSLATION BRIDGE ---
-#define vrms_reg3          inst_voltage
-#define irms1_reg3         inst_phase_current
-#define irms2_reg3         inst_neutral_current
-#define freq_reg3          inst_freq
-#define pf_reg3            inst_pf
-#define tot_kw_reg3        inst_kw
-#define kva_reg3           inst_kva
-#define ontime             reset_on_time
+#define vrms_reg3 inst_voltage
+#define irms1_reg3 inst_phase_current
+#define irms2_reg3 inst_neutral_current
+#define freq_reg3 inst_freq
+#define pf_reg3 inst_pf
+#define tot_kw_reg3 inst_kw
+#define kva_reg3 inst_kva
+#define ontime reset_on_time
 // #define tamper_cnt         all_tamper_cnt
 
 // Memory and Config mappings
 // #define config_change_cnt  scratch
-#define config_event_pos   scratch2
-#define CONFIG_EVENT_SIZE  10
-#define CONFIG_EVENT_LOC   0
+#define config_event_pos scratch2
+#define CONFIG_EVENT_SIZE 10
+#define CONFIG_EVENT_LOC 0
 #define DLMS_PFAIL_EVENT_SIZE 10
 #define DLMS_PFAIL_EVENT_LOC 0
 #define DLMS_PFAIL_EVENT_POS_LOC 0
-#define tamper_pos         event_pos
-#define TAMPER_SIZE        EVENT_SIZE
-#define TAMPER_LOC         VOLT_EVENT_LOC
-#define INST_TAMPER_LOC    VOLT_EVENT_LOC
+#define tamper_pos event_pos
+#define TAMPER_SIZE EVENT_SIZE
+#define TAMPER_LOC VOLT_EVENT_LOC
+#define INST_TAMPER_LOC VOLT_EVENT_LOC
 #define HIST_BILL_TIME_LOC LAST_BILL_TIME_LOC
 
 // TOD and Billing mappings
 #define passive_num_of_zone num_of_zone
-#define passive_t_zone      t_zone
+#define passive_t_zone t_zone
 #define PASSIVE_NUM_ZONE_LOC NUM_ZONE_LOC
 #define tod_activation_time activate_time
 #define TOD_ACTIVATION_TIME_LOC ACTIVATE_TIME_LOC
-#define spec_bill_active    ep_clear_stat
-#define spec_bill_hr        single_billing_hr
-#define spec_bill_mn        single_billing_min
-#define billing_hour        billing_hr
-#define billing_minute      billing_min
-#define spec_bill_yr        single_billing_year
-#define spec_bill_mo        single_billing_month
-#define spec_bill_dy        single_billing_day
-#define BILL_HOUR_LOC       BILL_TIME_LOC
-#define BILL_MINUTE_LOC     (BILL_TIME_LOC+1)
-#define SPEC_BILL_LOC       SCHEDULED_BILL_DAY_LOC
-#define last_stored_tod_kwh_val last_hr_load_val[0]
-#define last_stored_tod_kvah_val last_hr_load_val[1]
+#define spec_bill_active ep_clear_stat
+#define spec_bill_hr single_billing_hr
+#define spec_bill_mn single_billing_min
+#define billing_hour billing_hr
+#define billing_minute billing_min
+#define spec_bill_yr single_billing_year
+#define spec_bill_mo single_billing_month
+#define spec_bill_dy single_billing_day
+#define BILL_HOUR_LOC BILL_TIME_LOC
+#define BILL_MINUTE_LOC (BILL_TIME_LOC + 1)
+#define SPEC_BILL_LOC SCHEDULED_BILL_DAY_LOC
+// #define last_stored_tod_kwh_val last_hr_load_val[0]
+// #define last_stored_tod_kvah_val last_hr_load_val[1]
 
 // Profile Generic mappings
-#define LOAD_DATE_LOC       DAILY_SURVEY_LOC
+#define LOAD_DATE_LOC DAILY_SURVEY_LOC
 #define DAILY_SURVEY_KVAH_LOC DAILY_SURVEY_LOC
 #define g_Class07_Blockload_EntriesInUse Load_Profile_Entries_In_Use
 #define g_Class07_Blockload_MaxEntries Load_Profile_Entries
@@ -75,8 +75,12 @@ void log_config_change_event(int a);
 
 #ifndef DLMS_STRUCTS_DEFINED
 #define DLMS_STRUCTS_DEFINED
-typedef struct {
-    struct { unsigned char year_high, year_low, month, day_of_month, hour, minute; } clock_value;
+typedef struct
+{
+    struct
+    {
+        unsigned char year_high, year_low, month, day_of_month, hour, minute;
+    } clock_value;
     unsigned int voltage_value, kWh_value, kVAh_value, current_value;
 } class07_blockload_entry_t;
 extern class07_blockload_entry_t g_Class07_BlockLoadBuffer;
@@ -1191,6 +1195,69 @@ static void Read_PCP_Register(unsigned char attr, unsigned int *apdu_len) /* 1.0
     }
 }
 
+/* Class 4 (Extended Register) - Reads live TOD Maximum Demand */
+static void Read_TOD_MD_Common(unsigned char attr, unsigned int *apdu_len, unsigned char is_kva, unsigned char zone_idx)
+{
+    unsigned int loc;
+    unsigned int md_val;
+    unsigned long md_date;
+    unsigned int md_time;
+
+    if (zone_idx >= 8)
+        return;
+
+    loc = (is_kva ? TOD_KVAMD_LOC : TOD_KWMD_LOC) + (mnth_pos * 88) + (zone_idx * 11);
+    md_val = from_eeprom(loc + 4, 2);
+    md_date = from_eeprom(loc + 6, 3);
+    md_time = from_eeprom(loc + 9, 2);
+
+    if (attr == 2) /* Value */
+    {
+        DLMS_Inject_Type05_Uint32(apdu_len, md_val);
+    }
+    else if (attr == 3) /* Scaler & Unit */
+    {
+        dlms_apdu_buf[(*apdu_len)++] = 0x02;
+        dlms_apdu_buf[(*apdu_len)++] = 0x02;
+        dlms_apdu_buf[(*apdu_len)++] = 0x0F;
+        dlms_apdu_buf[(*apdu_len)++] = 0x00; /* Scaler: 0 */
+        dlms_apdu_buf[(*apdu_len)++] = 0x16;
+        dlms_apdu_buf[(*apdu_len)++] = is_kva ? 0x1C : 0x1B; /* 0x1C = VA, 0x1B = W */
+    }
+    else if (attr == 4) /* Status */
+    {
+        dlms_apdu_buf[(*apdu_len)++] = 0x05;
+        dlms_apdu_buf[(*apdu_len)++] = 0x00;
+        dlms_apdu_buf[(*apdu_len)++] = 0x00;
+        dlms_apdu_buf[(*apdu_len)++] = 0x00;
+        dlms_apdu_buf[(*apdu_len)++] = 0x00;
+    }
+    else if (attr == 5) /* Capture Time */
+    {
+        DLMS_Inject_EEPROM_Date(apdu_len, md_val, md_date, md_time);
+    }
+}
+
+/* Specific Zone Wrappers for kW MD */
+static void Read_TOD_KW_MD_Z1(unsigned char attr, unsigned int *l) { Read_TOD_MD_Common(attr, l, 0, 0); }
+static void Read_TOD_KW_MD_Z2(unsigned char attr, unsigned int *l) { Read_TOD_MD_Common(attr, l, 0, 1); }
+static void Read_TOD_KW_MD_Z3(unsigned char attr, unsigned int *l) { Read_TOD_MD_Common(attr, l, 0, 2); }
+static void Read_TOD_KW_MD_Z4(unsigned char attr, unsigned int *l) { Read_TOD_MD_Common(attr, l, 0, 3); }
+static void Read_TOD_KW_MD_Z5(unsigned char attr, unsigned int *l) { Read_TOD_MD_Common(attr, l, 0, 4); }
+static void Read_TOD_KW_MD_Z6(unsigned char attr, unsigned int *l) { Read_TOD_MD_Common(attr, l, 0, 5); }
+static void Read_TOD_KW_MD_Z7(unsigned char attr, unsigned int *l) { Read_TOD_MD_Common(attr, l, 0, 6); }
+static void Read_TOD_KW_MD_Z8(unsigned char attr, unsigned int *l) { Read_TOD_MD_Common(attr, l, 0, 7); }
+
+/* Specific Zone Wrappers for kVA MD */
+static void Read_TOD_KVA_MD_Z1(unsigned char attr, unsigned int *l) { Read_TOD_MD_Common(attr, l, 1, 0); }
+static void Read_TOD_KVA_MD_Z2(unsigned char attr, unsigned int *l) { Read_TOD_MD_Common(attr, l, 1, 1); }
+static void Read_TOD_KVA_MD_Z3(unsigned char attr, unsigned int *l) { Read_TOD_MD_Common(attr, l, 1, 2); }
+static void Read_TOD_KVA_MD_Z4(unsigned char attr, unsigned int *l) { Read_TOD_MD_Common(attr, l, 1, 3); }
+static void Read_TOD_KVA_MD_Z5(unsigned char attr, unsigned int *l) { Read_TOD_MD_Common(attr, l, 1, 4); }
+static void Read_TOD_KVA_MD_Z6(unsigned char attr, unsigned int *l) { Read_TOD_MD_Common(attr, l, 1, 5); }
+static void Read_TOD_KVA_MD_Z7(unsigned char attr, unsigned int *l) { Read_TOD_MD_Common(attr, l, 1, 6); }
+static void Read_TOD_KVA_MD_Z8(unsigned char attr, unsigned int *l) { Read_TOD_MD_Common(attr, l, 1, 7); }
+
 /* Class 8 (Clock) attr 2 - sets the RTC from a DLMS date-time octet string.
  * Tag/length must be 0x09 0x0C (octet-string, 12 bytes) per the DLMS spec. */
 static unsigned char Write_RTC(unsigned char attr, unsigned char *data, unsigned int len)
@@ -1617,6 +1684,26 @@ const DLMS_Object_t DLMS_Object_Dictionary[] = {
     // -- Class 4 (Extended Register - MD) --
     {4, {1, 0, 1, 6, 0, 255}, ACCESS_READ_C16 | ACCESS_READ_C32 | ACCESS_READ_C48, Read_ActiveMD, NULL, NULL},
     {4, {1, 0, 9, 6, 0, 255}, ACCESS_READ_C16 | ACCESS_READ_C32 | ACCESS_READ_C48, Read_ApparentMD, NULL, NULL},
+
+    // -- Class 4 (TOD Active Power MD Zones 1 to 8) --
+    {4, {1, 0, 1, 6, 1, 255}, ACCESS_READ_C16 | ACCESS_READ_C32 | ACCESS_READ_C48, Read_TOD_KW_MD_Z1, NULL, NULL},
+    {4, {1, 0, 1, 6, 2, 255}, ACCESS_READ_C16 | ACCESS_READ_C32 | ACCESS_READ_C48, Read_TOD_KW_MD_Z2, NULL, NULL},
+    {4, {1, 0, 1, 6, 3, 255}, ACCESS_READ_C16 | ACCESS_READ_C32 | ACCESS_READ_C48, Read_TOD_KW_MD_Z3, NULL, NULL},
+    {4, {1, 0, 1, 6, 4, 255}, ACCESS_READ_C16 | ACCESS_READ_C32 | ACCESS_READ_C48, Read_TOD_KW_MD_Z4, NULL, NULL},
+    {4, {1, 0, 1, 6, 5, 255}, ACCESS_READ_C16 | ACCESS_READ_C32 | ACCESS_READ_C48, Read_TOD_KW_MD_Z5, NULL, NULL},
+    {4, {1, 0, 1, 6, 6, 255}, ACCESS_READ_C16 | ACCESS_READ_C32 | ACCESS_READ_C48, Read_TOD_KW_MD_Z6, NULL, NULL},
+    {4, {1, 0, 1, 6, 7, 255}, ACCESS_READ_C16 | ACCESS_READ_C32 | ACCESS_READ_C48, Read_TOD_KW_MD_Z7, NULL, NULL},
+    {4, {1, 0, 1, 6, 8, 255}, ACCESS_READ_C16 | ACCESS_READ_C32 | ACCESS_READ_C48, Read_TOD_KW_MD_Z8, NULL, NULL},
+
+    // -- Class 4 (TOD Apparent Power MD Zones 1 to 8) --
+    {4, {1, 0, 9, 6, 1, 255}, ACCESS_READ_C16 | ACCESS_READ_C32 | ACCESS_READ_C48, Read_TOD_KVA_MD_Z1, NULL, NULL},
+    {4, {1, 0, 9, 6, 2, 255}, ACCESS_READ_C16 | ACCESS_READ_C32 | ACCESS_READ_C48, Read_TOD_KVA_MD_Z2, NULL, NULL},
+    {4, {1, 0, 9, 6, 3, 255}, ACCESS_READ_C16 | ACCESS_READ_C32 | ACCESS_READ_C48, Read_TOD_KVA_MD_Z3, NULL, NULL},
+    {4, {1, 0, 9, 6, 4, 255}, ACCESS_READ_C16 | ACCESS_READ_C32 | ACCESS_READ_C48, Read_TOD_KVA_MD_Z4, NULL, NULL},
+    {4, {1, 0, 9, 6, 5, 255}, ACCESS_READ_C16 | ACCESS_READ_C32 | ACCESS_READ_C48, Read_TOD_KVA_MD_Z5, NULL, NULL},
+    {4, {1, 0, 9, 6, 6, 255}, ACCESS_READ_C16 | ACCESS_READ_C32 | ACCESS_READ_C48, Read_TOD_KVA_MD_Z6, NULL, NULL},
+    {4, {1, 0, 9, 6, 7, 255}, ACCESS_READ_C16 | ACCESS_READ_C32 | ACCESS_READ_C48, Read_TOD_KVA_MD_Z7, NULL, NULL},
+    {4, {1, 0, 9, 6, 8, 255}, ACCESS_READ_C16 | ACCESS_READ_C32 | ACCESS_READ_C48, Read_TOD_KVA_MD_Z8, NULL, NULL},
 
     // -- Class 15 (Association LN) --
     {15, {0, 0, 40, 0, 0, 255}, ACCESS_READ_C16 | ACCESS_READ_C32 | ACCESS_READ_C48, Read_Association_Current, NULL, NULL},
