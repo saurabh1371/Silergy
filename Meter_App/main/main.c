@@ -778,7 +778,8 @@ int main(void)
 			_1_SecFunction();
 			// ser2_tx_ch(0xaa);
 
-			if ((NM_CT_Detected == 1) && (Mains_Supply_DIO == 1) && (inst_voltage > 1000) && (inst_voltage != 2400)) // Reset in case power resumes during NM
+			if ((NM_CT_Detected == 1) && (Mains_Supply_DIO == 1)) // Reset in case power resumes during NM
+			// NOTE: previously also required (inst_voltage > 1000) && (inst_voltage != 2400).
 			{
 
 				SYS->MOD_CNTL |= BIT31;
