@@ -10,6 +10,7 @@
  * callback matches - this file never talks to the wire protocol directly.
  ******************************************************************************/
 #include <stddef.h>
+#include <string.h>
 #include "asdaq_variables.h"
 #include "dlms_eeprom.h"
 #include "dlms_stack.h"
