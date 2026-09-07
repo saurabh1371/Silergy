@@ -351,6 +351,16 @@ void WakePushButtonFunction(void)
 		gpio_dir_in(PCB_BUTTON_SEG);
 		while (gpio_get_state(PCB_BUTTON_SEG))
 		{
+			// Mains came back while we were showing the battery-mode display:
+			// force a controlled reset so main() re-runs with WAKE_FROM_MAINS
+			// and normal metering (pulses) resumes instead of staying stuck here.
+			if (!(SYS->STAT_b.v3a_nok))
+			{
+				SYS->MOD_CNTL |= BIT31;
+				while (1)
+					;
+			}
+
 			for (i = 0; i < 1000; i++)
 			{
 			}
@@ -375,6 +385,14 @@ void WakePushButtonFunction(void)
 		sleep_timeout = 0;
 		while (!gpio_get_state(PCB_BUTTON_SEG))
 		{
+			// Same mains-return check while waiting for the next press/timeout.
+			if (!(SYS->STAT_b.v3a_nok))
+			{
+				SYS->MOD_CNTL |= BIT31;
+				while (1)
+					;
+			}
+
 			for (i = 0; i < 1000; i++)
 			{
 			}
@@ -393,6 +411,15 @@ void WakePushButtonFunction(void)
 					SetWakeSources();
 					while (true)
 					{
+						// If mains has returned by the time we reach the sleep trap,
+						// reset instead of looping the sleep instruction forever.
+						if (!(SYS->STAT_b.v3a_nok))
+						{
+							SYS->MOD_CNTL |= BIT31;
+							while (1)
+								;
+						}
+
 						SYS->MOD_CNTL = 3; // Sleep
 						delay(DELAY_MS(1));
 					}
@@ -1043,6 +1070,15 @@ void _1_SecFunction(void)
 
 		if (NM_CT_Detected == 1)
 			Mains_Supply_DIO = (gpio_get_state(NM_DETECT_PIN)); // NM Pin
+		else if (!(gpio_get_state(NM_DETECT_PIN)))				// NM Pin engaged while running in normal mode
+		{
+			// NM_CT_Detected is only latched at boot; force a reset so main()
+			// re-runs with WAKE_FROM_MAINS and re-detects NM_CT_Detected = 1,
+			// same as a direct power-on in NM mode.
+			SYS->MOD_CNTL |= BIT31;
+			while (1)
+				;
+		}
 
 		if (PowerOnSec < 10)
 			PowerOnSec++;

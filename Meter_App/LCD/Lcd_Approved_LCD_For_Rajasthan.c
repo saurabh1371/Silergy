@@ -229,11 +229,11 @@ void lcd_init_1(void)
 
 void lcd_init_no_clear(void)
 {
-    // Initializes the LCD registers without triggering a hardware blank/reset
-    LCD->MAPL = LCD_MAPL_DEF;
-    LCD->MAPH = LCD_MAPH_DEF;
-    LCD->MODE = LCD_MODE_DEF;
-    LCD->CNTL = 0x00000004; 
+	// Initializes the LCD registers without triggering a hardware blank/reset
+	LCD->MAPL = LCD_MAPL_DEF;
+	LCD->MAPH = LCD_MAPH_DEF;
+	LCD->MODE = LCD_MODE_DEF;
+	LCD->CNTL = 0x00000004;
 }
 
 uint8_t LCD_PushButton_Parm, PushButtonTimeOut, PushButtonDisplayFlag;
@@ -962,24 +962,36 @@ lcd_put_icon(Rev);
 //lcd_put_icon(NM);
 #endif
 
-	if (rev_stat == 1)
-		lcd_put_icon(T4);
-	if (cuopen_stat == 1)
-		lcd_put_icon(T11);
-	if (magnetic_stat == 1)
-		lcd_put_icon(T9);
+	// 1. REVERSE
+    // Glows only when instantaneous reverse power is actively detected
+    if (rev_stat == 1)
+        lcd_put_icon(T3);
 
-	if ((NM_CT_Detected == 1) || (nd_stat == 1))
-		lcd_put_icon(T5);
-	if (((eload_stat == 1) || (nd_stat == 1)) && (magnetic_stat == 0))
-		lcd_put_icon(T4);
+    // 2. COVER OPEN
+    if (cuopen_stat == 1)
+        lcd_put_icon(T11);
 
-	//	if(THD_10V_40V_inject_flag)
-	//	lcd_put_icon(OK);
+    // 3. MAGNETIC
+    // Glows only while the magnet is physically present
+    if (magnetic_stat == 1)
+        lcd_put_icon(T9);
 
-	if (NM_CT_Detected == 0)		// not required in NM mode
-		if (!(SYS->STAT_b.v3a_nok)) // Power ON Icon
-			lcd_put_icon(T2);
+    // 4. NEUTRAL MISSING / DISTURBANCE
+    // Glows only while the neutral disturbance/missing condition is physically active
+    if ((NM_CT_Detected == 1) || (nd_stat == 1) || (nmiss_stat == 1))
+        lcd_put_icon(T5);
+
+    // 5. EARTH LOAD
+    // Glows only while an active earth load imbalance is happening
+    if (((eload_stat == 1) || (nd_stat == 1)) && (magnetic_stat == 0))
+        lcd_put_icon(T4);
+
+    // 6. POWER ON ICON
+    if (NM_CT_Detected == 0) // not required in NM mode
+    {
+        if (!(SYS->STAT_b.v3a_nok))
+            lcd_put_icon(T2);
+    }
 }
 
 #if 0
