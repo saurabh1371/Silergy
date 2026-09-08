@@ -559,28 +559,28 @@ void meter_sum_data(void)
     Local_RAM_ce_data.v1sqsum_x = ce_data.v1sqsum_x;     //  0x8F
                                                          //**********************************************************************
 
-    if (NM_CT_Detected == 1) // RAJIV
+    if (NM_CT_Detected == 1)
     {
-        //**************************NM Power Calculation****************************************************
-
         Local_RAM_ce_data.w0sum_x = Sqrt_v0sqsum_240V * sqrt(Local_RAM_ce_data.i0sqsum_x_h);
-
-        if (Local_RAM_ce_data.w0sum_x < NM_Power_Threshold) // below 240V*1.5A=360W not required
+        if (Local_RAM_ce_data.w0sum_x < NM_Power_Threshold)
         {
             Local_RAM_ce_data.i0sqsum_x_h = 0;
             Local_RAM_ce_data.i0sqsum_x_l = 0;
             Local_RAM_ce_data.w0sum_x = 0;
-
-        } //*/
+        }
 
         Local_RAM_ce_data.w1sum_x = Sqrt_v0sqsum_240V * sqrt(Local_RAM_ce_data.i1sqsum_x_h);
-
-        if (Local_RAM_ce_data.w1sum_x < NM_Power_Threshold) // below 240V*1.5A=360W not required
+        if (Local_RAM_ce_data.w1sum_x < NM_Power_Threshold)
         {
             Local_RAM_ce_data.i1sqsum_x_h = 0;
             Local_RAM_ce_data.i1sqsum_x_l = 0;
             Local_RAM_ce_data.w1sum_x = 0;
         }
+
+        // Push local calculations back to active CE registers
+        ce_data.w0sum_x = Local_RAM_ce_data.w0sum_x;
+        ce_data.w1sum_x = Local_RAM_ce_data.w1sum_x;
+        ce_data.wsum_x = (channel == 0) ? ce_data.w0sum_x : ce_data.w1sum_x;
     }
 
     // Add up Watt-hours, and demand.

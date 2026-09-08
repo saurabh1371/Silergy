@@ -558,6 +558,77 @@ extern uint32_t Temp_inst_voltage;
 uint8_t PowerOnSec = 0, Mains_Supply_DIO = 0, forcefully_set_rtc = 0xFF;
 uint16_t Last_Communication_Enable_Counter;
 uint32_t WakeFromRegisterCopy;
+
+// --- Live NM mode switch -----------------------------------------------
+// Replaces the old approach of forcing SYS->MOD_CNTL |= BIT31 (a full
+// warm reset of the SoC) whenever NM_DETECT_PIN changed state, which
+// re-ran main() from scratch just to re-latch NM_CT_Detected. That
+// caused a visible reboot (boot splash) on every NM entry/exit.
+//
+// ce_data lives in shared RAM read directly by the CE core (see afe.h),
+// so cal_i0/wrate/ceconfig can be updated live -- this is the same
+// mechanism CalibrateShunt()/CalibrateCT() already use at runtime.
+// meter_start()/afe_init() are deliberately NOT re-run here: doing so
+// would reset the CE's energy accumulators mid-cycle.
+#define NM_DEBOUNCE_SEC 3 // consecutive 1-sec samples required before switching
+static uint8_t NM_EnterDebounceCnt = 0;
+static uint8_t NM_ExitDebounceCnt = 0;
+
+static void ApplyNMMode(uint8_t new_nm_state)
+{
+	if (NM_CT_Detected == new_nm_state)
+		return;
+
+	afe_pulse_disable(); // Mute pulse GPIOs while the CE is reconfigured
+	NM_CT_Detected = new_nm_state;
+
+	afe_init(&default_ce);
+	cal_get();
+	meter_start(&default_ce);
+
+	if (NM_CT_Detected)
+	{
+		ce_data.ceconfig &= ~BIT1; // PULSE_FAST = 0
+		ce_data.ceconfig &= ~BIT0; // PULSE_SLOW = 0
+	}
+
+	ReadCalConstants();
+
+	if (NM_CT_Detected == 1)
+	{
+		SYS->MPU_CLK_b.mpu_spd = 0; // 786 kHz with VLS = 1
+		ce_data.ceconfig |= BIT29;	// RFS = 1
+	}
+	else
+	{
+		SYS->MPU_CLK_b.mpu_spd = 3; // 851 kHz with VLS = 0
+		ce_data.ceconfig &= ~BIT29; // RFS = 0
+	}
+
+	// Apply MPU clock and VLS setting
+	sys_set_mpuclk(SYS->MPU_CLK_b.mpu_spd, ADC->CNTL_b.adc_vls);
+
+	// Re-initialize Timer1 with the updated SystemCoreClock
+	timer1_start(TIMER1_MSEC, Timer1_Interrupt);
+
+	// NEVER enable optical power in NM mode (conserves CT power supply)
+	optical_power_enable(false);
+
+	if (NM_CT_Detected)
+	{
+		DLMS_HDLC_ResetSession();
+		ser2_deinit();
+	}
+	else
+	{
+		ser2_init(9600, NULL, NULL, NULL, NULL);
+	}
+
+	Mains_Supply_DIO = 0;
+	NM_EnterDebounceCnt = 0;
+	NM_ExitDebounceCnt = 0;
+}
+
 int main(void)
 {
 	wd_reset(); // Reset the watchdog.
@@ -778,17 +849,14 @@ int main(void)
 			_1_SecFunction();
 			// ser2_tx_ch(0xaa);
 
-			if ((NM_CT_Detected == 1) && (Mains_Supply_DIO == 1)) // Reset in case power resumes during NM
-			// NOTE: previously also required (inst_voltage > 1000) && (inst_voltage != 2400).
+			if ((NM_CT_Detected == 1) && (Mains_Supply_DIO == 1))
 			{
-
-				SYS->MOD_CNTL |= BIT31;
-				while (1)
-					;
+				ApplyNMMode(0);
 			}
-			else
+			else if ((NM_CT_Detected == 0) && (Temp_inst_voltage < 4) && (PowerOnSec > 2))
 			{
-				if ((NM_CT_Detected == 0) && (Temp_inst_voltage < 4) && (PowerOnSec > 2)) // No NM but voltage removed without removing load. With Diode tamper voltage read is approx 4V-6V
+				// Only reset if NM pin is NOT actively asserted/debouncing
+				if (gpio_get_state(NM_DETECT_PIN))
 				{
 					SYS->MOD_CNTL |= BIT31;
 					while (1)
@@ -1070,15 +1138,31 @@ void _1_SecFunction(void)
 		TaskAutoScroll();
 
 		if (NM_CT_Detected == 1)
-			Mains_Supply_DIO = (gpio_get_state(NM_DETECT_PIN)); // NM Pin
-		else if (!(gpio_get_state(NM_DETECT_PIN)))				// NM Pin engaged while running in normal mode
 		{
-			// NM_CT_Detected is only latched at boot; force a reset so main()
-			// re-runs with WAKE_FROM_MAINS and re-detects NM_CT_Detected = 1,
-			// same as a direct power-on in NM mode.
-			SYS->MOD_CNTL |= BIT31;
-			while (1)
-				;
+			// Debounce mains-restored before flagging exit (checked in main()'s loop).
+			if (gpio_get_state(NM_DETECT_PIN)) // NM Pin
+			{
+				if (NM_ExitDebounceCnt < NM_DEBOUNCE_SEC)
+					NM_ExitDebounceCnt++;
+			}
+			else
+				NM_ExitDebounceCnt = 0;
+
+			Mains_Supply_DIO = (NM_ExitDebounceCnt >= NM_DEBOUNCE_SEC) ? 1 : 0;
+		}
+		else
+		{
+			if (!(gpio_get_state(NM_DETECT_PIN))) // NM Pin engaged while running in normal mode
+			{
+				// Debounce before switching live -- see ApplyNMMode().
+				if (NM_EnterDebounceCnt < NM_DEBOUNCE_SEC)
+					NM_EnterDebounceCnt++;
+
+				if (NM_EnterDebounceCnt >= NM_DEBOUNCE_SEC)
+					ApplyNMMode(1);
+			}
+			else
+				NM_EnterDebounceCnt = 0;
 		}
 
 		if (PowerOnSec < 10)
