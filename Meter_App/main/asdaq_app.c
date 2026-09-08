@@ -1462,6 +1462,99 @@ void get_time_data(unsigned long int date_val, unsigned long int time_val)
   return;
 }
 
+/* LCD push-button history screens (PB_LoadBillHistory) only ever read
+ * Cumm_Energy_KWh/KVAh, MD_KW/KVA and Power_On_Time from stBilling_Profile.
+ * get_bill_data() also scans an 8x8 tariff-zone table and does up to ~16
+ * extra EEPROM page-reads to fill in _TZ fields that the LCD never shows -
+ * that's what made history-screen transitions feel slow. This is the same
+ * routine with that TOD-zone scan removed. Kept separate from get_bill_data()
+ * itself so any other (e.g. DLMS/TOD) caller of get_bill_data() is unaffected.
+ */
+void get_bill_data_lcd(unsigned int index)
+{
+  unsigned long int location, location1; //, location2;
+
+  // unsigned char Bill_Date[12];
+  // unsigned long Sys_Power_Factor;
+  // unsigned long long Cumm_Energy_KWh;
+  // unsigned long Cumm_Energy_KWh_TZ[8];
+  // unsigned long long Cumm_Energy_KVarh_Lag;
+  // unsigned long long Cumm_Energy_KVarh_Lead;
+  // unsigned long long Cumm_Energy_KVAh;
+  // unsigned long Cumm_Energy_KVAh_TZ[8];
+  // unsigned long MD_KW;
+  // unsigned char MD_KW_DT[12];
+  // unsigned long MD_KW_TZ[8];
+  // unsigned char MD_KW_TZ_DT[8][12];
+  // unsigned long MD_KVA;
+  // unsigned char MD_KVA_DT[12];
+  // unsigned long MD_KVA_TZ[8];
+  // unsigned char MD_KVA_TZ_DT[8][12];
+
+  // #define KWMD_LOC                1200 //(3+2+4+2+3+2)*13 =(16*13)= 208
+  // bdate,btime,kwh,kwmd,date,time//,pf,ontime
+
+  // #define KVAMD_LOC               1450 //1500 //(4+4+4+2+3+2)*13 =(19*13)= 247
+  // kvah,kvamd,date,time
+
+  // #define TOD_KWMD_LOC            1717    //(4+2+3+2)*8*13=88*13=1144
+  // #define TOD_KVAMD_LOC           2861    //(4+2+3+2)*8*13=88*13=1144
+
+  location = (mnth_pos + HISTORY_SIZE - index) % HISTORY_SIZE; // cyclic(mnth_pos+13-index, HISTORY_SIZE); //(index 1 to 13) //12 month history
+  // location2=KWMD_EXTRA_LOC+(location*2);//+(disp_zone_ctr*11);
+  location = KWMD_LOC + (location * 19);
+
+  location1 = (mnth_pos + HISTORY_SIZE - index) % HISTORY_SIZE; // cyclic(mnth_pos+13-index, HISTORY_SIZE); //12 month history
+  location1 = KVAMD_LOC + (location1 * 11);                     // 11
+
+  read_page_eeprom(location, 0, 19);
+  read_page_eeprom(location1, 1, 11);
+
+  if (index == 0)
+  {
+    get_time_data(real_date, real_time); //(0,0);
+    memcpy(stBilling_Profile.Bill_Date, tmp_time_string, 12);
+
+    stBilling_Profile.Cumm_Energy_KWh = load_val[0];
+    stBilling_Profile.Cumm_Energy_KVAh = load_val[1];
+    // stBilling_Profile.Cumm_Energy_KVarh_Lag=load_val[2];
+    // stBilling_Profile.Cumm_Energy_KVarh_Lead=load_val[3];
+    stBilling_Profile.Power_On_Time = reset_on_time;
+    stBilling_Profile.Sys_Power_Factor = avg_pf;
+  }
+  else
+  {
+
+    scratch = from_data_arr(0, 0, 3);
+    scratch1 = from_data_arr(3, 0, 2);
+    get_time_data(scratch, (scratch1 * 100));
+    // get_time_data(real_date, real_time);//(0,0);
+    memcpy(stBilling_Profile.Bill_Date, tmp_time_string, 12);
+    stBilling_Profile.Cumm_Energy_KWh = from_data_arr(5, 0, 4);
+    stBilling_Profile.Cumm_Energy_KVAh = from_data_arr(0, 1, 4);
+    // stBilling_Profile.Cumm_Energy_KVarh_Lag=from_data_arr(4,1,4);
+    // stBilling_Profile.Cumm_Energy_KVarh_Lead=from_data_arr(8,1,4);
+    stBilling_Profile.Power_On_Time = from_data_arr(16, 0, 2);
+    stBilling_Profile.Sys_Power_Factor = from_data_arr(18, 0, 1);
+  }
+
+  stBilling_Profile.MD_KW = from_data_arr(9, 0, 2);
+
+  scratch = from_data_arr(11, 0, 3);
+  scratch1 = from_data_arr(14, 0, 2);
+  get_time_data(scratch, (scratch1 * 100));
+  memcpy(stBilling_Profile.MD_KW_DT, tmp_time_string, 12);
+
+  stBilling_Profile.MD_KVA = from_data_arr(4, 1, 2);
+
+  scratch = from_data_arr(6, 1, 3);
+  scratch1 = from_data_arr(9, 1, 2);
+  get_time_data(scratch, (scratch1 * 100));
+  memcpy(stBilling_Profile.MD_KVA_DT, tmp_time_string, 12);
+
+  return;
+}
+
 void get_bill_data(unsigned int index)
 {
   unsigned int i, j;

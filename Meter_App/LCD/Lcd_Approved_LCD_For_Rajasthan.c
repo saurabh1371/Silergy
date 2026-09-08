@@ -472,7 +472,7 @@ static void PB_LoadBillHistory(uint8_t idx)
 	static uint8_t s_bill_idx_loaded = 0xFF;
 	if (s_bill_idx_loaded != idx)
 	{
-		get_bill_data(idx);
+		get_bill_data_lcd(idx); // LCD-only variant - skips the 8x8 TOD-zone EEPROM scan get_bill_data() does
 		s_bill_idx_loaded = idx;
 	}
 }
@@ -963,35 +963,35 @@ lcd_put_icon(Rev);
 #endif
 
 	// 1. REVERSE
-    // Glows only when instantaneous reverse power is actively detected
-    if (rev_stat == 1)
-        lcd_put_icon(T3);
+	// Glows only when instantaneous reverse power is actively detected
+	if (rev_stat == 1)
+		lcd_put_icon(T3);
 
-    // 2. COVER OPEN
-    if (cuopen_stat == 1)
-        lcd_put_icon(T11);
+	// 2. COVER OPEN
+	if (cuopen_stat == 1)
+		lcd_put_icon(T11);
 
-    // 3. MAGNETIC
-    // Glows only while the magnet is physically present
-    if (magnetic_stat == 1)
-        lcd_put_icon(T9);
+	// 3. MAGNETIC
+	// Glows only while the magnet is physically present
+	if (magnetic_stat == 1)
+		lcd_put_icon(T9);
 
-    // 4. NEUTRAL MISSING / DISTURBANCE
-    // Glows only while the neutral disturbance/missing condition is physically active
-    if ((NM_CT_Detected == 1) || (nd_stat == 1) || (nmiss_stat == 1))
-        lcd_put_icon(T5);
+	// 4. NEUTRAL MISSING / DISTURBANCE
+	// Glows only while the neutral disturbance/missing condition is physically active
+	if ((NM_CT_Detected == 1) || (nd_stat == 1) || (nmiss_stat == 1))
+		lcd_put_icon(T5);
 
-    // 5. EARTH LOAD
-    // Glows only while an active earth load imbalance is happening
-    if (((eload_stat == 1) || (nd_stat == 1)) && (magnetic_stat == 0))
-        lcd_put_icon(T4);
+	// 5. EARTH LOAD
+	// Glows only while an active earth load imbalance is happening
+	if (((eload_stat == 1) || (nd_stat == 1)) && (magnetic_stat == 0))
+		lcd_put_icon(T4);
 
-    // 6. POWER ON ICON
-    if (NM_CT_Detected == 0) // not required in NM mode
-    {
-        if (!(SYS->STAT_b.v3a_nok))
-            lcd_put_icon(T2);
-    }
+	// 6. POWER ON ICON
+	if (NM_CT_Detected == 0) // not required in NM mode
+	{
+		if (!(SYS->STAT_b.v3a_nok))
+			lcd_put_icon(T2);
+	}
 }
 
 #if 0

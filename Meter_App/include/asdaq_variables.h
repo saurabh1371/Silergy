@@ -360,6 +360,7 @@ void get_dlp_data(unsigned int);
 void get_tamper_data(unsigned char, unsigned int);
 void get_lp_data(unsigned int);
 void get_bill_data(unsigned int);
+void get_bill_data_lcd(unsigned int index);
 void get_time_data(unsigned long int, unsigned long int);
 void find_num_between_lp_entries(void);
 void find_num_between_dlp_entries(void);

@@ -431,10 +431,10 @@ void WakePushButtonFunction(void)
 		}
 
 		// 6. If we reach here, the user manually PRESSED the button again!
-		for (i = 0; i < 5000; i++)
+		for (i = 0; i < 500; i++)
 		{
 			wd_reset();
-		} // Hardware debounce
+		} // Hardware debounce (shortened - was 5000, felt sluggish)
 
 		// Advance the screen manually and loop back to wait for release
 		BatteryModeManualNext();
