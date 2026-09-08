@@ -12,6 +12,7 @@
  * call the relevant one directly and return - same as before this file
  * existed, nothing about that call pattern changes.
  ******************************************************************************/
+#include <string.h>
 #include "asdaq_variables.h"
 #include "dlms_eeprom.h"
 #include "dlms_stack.h"
@@ -222,7 +223,7 @@ static void DLMS_Append_Billing_Row(unsigned int *len_ptr, int row)
     {
         /* Historical Months */
         unsigned long tmp_btime;
-        tmp_date  = from_eeprom(loc_kwmd, 3); /* Date: DDMMYY */
+        tmp_date = from_eeprom(loc_kwmd, 3);      /* Date: DDMMYY */
         tmp_btime = from_eeprom(loc_kwmd + 3, 2); /* Time: HHMM*/
         tmp_kwh = from_eeprom(loc_kwmd + 5, 4);
         tmp_kwmd = from_eeprom(loc_kwmd + 9, 2);
@@ -245,8 +246,10 @@ static void DLMS_Append_Billing_Row(unsigned int *len_ptr, int row)
             hr = (unsigned char)(tmp_btime / 100);
             mn = (unsigned char)(tmp_btime % 100);
 
-            if (hr > 23) hr = 0;
-            if (mn > 59) mn = 0;
+            if (hr > 23)
+                hr = 0;
+            if (mn > 59)
+                mn = 0;
 
             DLMS_Inject_DateTime(&apdu_len, yr, mo, dy, hr, mn, 0);
         }
@@ -420,7 +423,7 @@ static void DLMS_Append_Event_Row(unsigned int *len_ptr, int row)
     /* row is 0-indexed. get_tamper_data expects 1-indexed (1 = newest event) */
     get_tamper_data(tx_event_type, (unsigned int)(row + 1));
 
-    if (tx_event_type == 2 || tx_event_type == 3)
+    if (tx_event_type == 2 || tx_event_type == 3 || tx_event_type == 5)
     {
         /* --- 2 Columns: Power Fail (2) and Transaction (3) --- */
         dlms_apdu_buf[apdu_len++] = 0x02; /* Structure */
@@ -472,14 +475,14 @@ static void DLMS_Append_Event_Row(unsigned int *len_ptr, int row)
         /* 2. Event Code (Uint16) */
         DLMS_Inject_Type12_Uint16(&apdu_len, stTamper_Profile.Tamper_ID);
 
-        /* 3. Current (mA, Scaler -3) */
-        DLMS_Inject_Type05_Uint32(&apdu_len, (unsigned long)stTamper_Profile.Irms);
+        /* 3. Current (mA, Scaler -3) -> Changed to Uint16 to match Read_Current1 */
+        DLMS_Inject_Type12_Uint16(&apdu_len, (unsigned int)stTamper_Profile.Irms);
 
-        /* 4. Voltage (0.1 V, Scaler -1) */
-        DLMS_Inject_Type05_Uint32(&apdu_len, (unsigned long)stTamper_Profile.Vrms);
+        /* 4. Voltage (0.1 V, Scaler -1) -> Changed to Uint16 to match Read_Voltage */
+        DLMS_Inject_Type12_Uint16(&apdu_len, (unsigned int)stTamper_Profile.Vrms);
 
-        /* 5. Power Factor (Scaler -2, e.g., 100 = 1.00) */
-        DLMS_Inject_Type05_Uint32(&apdu_len, (unsigned long)stTamper_Profile.PF);
+        /* 5. Power Factor (Scaler -3, e.g., 1000 = 1.000) -> Scaled by 10 and changed to Uint16 */
+        DLMS_Inject_Type12_Uint16(&apdu_len, (unsigned int)stTamper_Profile.PF * 10);
 
         /* 6. Cumulative Active Energy (Wh, Scaler 0) - load_val is 10 Wh * 10 = Wh */
         DLMS_Inject_Type05_Uint32(&apdu_len, (unsigned long)stTamper_Profile.E_Active * 10);
@@ -625,7 +628,7 @@ static void DLMS_Append_BlockLoad_Row(unsigned int *len_ptr, int row)
     DLMS_Inject_Type05_Uint32(&apdu_len, (unsigned long)stLoad_Profile.E_Apparent * 10);
 
     /* 6. Column 5: Average Current (mA, Scaler -3) */
-    DLMS_Inject_Type05_Uint32(&apdu_len, (unsigned long)stLoad_Profile.Irms);
+    DLMS_Inject_Type12_Uint16(&apdu_len, (unsigned long)stLoad_Profile.Irms);
 
     *len_ptr = apdu_len;
 }
@@ -1089,6 +1092,13 @@ static const unsigned char pfail_capture_objs[] = {
     /* 2. Event Code (Class 1) - 0.0.96.11.2.255 */
     0x02, 0x04, 0x12, 0x00, 0x01, 0x09, 0x06, 0x00, 0x00, 0x60, 0x0B, 0x02, 0xFF, 0x0F, 0x02, 0x12, 0x00, 0x00};
 
+/* --- NON-ROLLOVER / COVER OPEN (2 Columns) --- */
+static const unsigned char nonroll_capture_objs[] = {
+    /* 1. Clock (Class 8) */
+    0x02, 0x04, 0x12, 0x00, 0x08, 0x09, 0x06, 0x00, 0x00, 0x01, 0x00, 0x00, 0xFF, 0x0F, 0x02, 0x12, 0x00, 0x00,
+    /* 2. Event Code (Class 1) - 0.0.96.11.5.255 */
+    0x02, 0x04, 0x12, 0x00, 0x01, 0x09, 0x06, 0x00, 0x00, 0x60, 0x0B, 0x05, 0xFF, 0x0F, 0x02, 0x12, 0x00, 0x00};
+
 /* Pre-compiled Scalar Profile Buffers - ALIGNED WITH CLASS 3 */
 static const unsigned char inst_scalar_attr2_buf[] = {
     0x01, 0x01, 0x02, 0x0C,             /* Array, 1 row, struct, 12 cols */
@@ -1118,7 +1128,7 @@ static const unsigned char event_scalar_attr2_buf[] = {
     0x01, 0x01, 0x02, 0x04,             /* Array, 1 row, struct, 4 cols */
     0x02, 0x02, 0x0F, 0xFD, 0x16, 0x21, /* Active Current (-3, Amperes) */
     0x02, 0x02, 0x0F, 0xFF, 0x16, 0x23, /* Voltage (-1) */
-    0x02, 0x02, 0x0F, 0xFE, 0x16, 0xFF, /* Power Factor (-2, Unitless) */
+    0x02, 0x02, 0x0F, 0xFD, 0x16, 0xFF, /* Power Factor (-3, Unitless) */
     0x02, 0x02, 0x0F, 0x00, 0x16, 0x1E  /* Active Energy (0, Wh) */
 };
 /* Handles all Class 7 (Profile Generic) GET requests: OBIS routing for
@@ -1717,9 +1727,22 @@ DLMS_Class7_Result_t DLMS_Meter_ProcessClass7Get(unsigned char client, unsigned 
                 if (!DLMS_Build_Class7_Metadata(&apdu_len, attr, 0, 0x02, transaction_capture_objs, sizeof(transaction_capture_objs), Tamper_Profile_Entries_In_Use[event_type]))
                     return DLMS_CLASS7_RESULT_REJECT;
             }
-            else /* Voltage (0), Current (1), Others (4), Non-Rollover (5) (6 Columns) */
+            else if (event_type == 5) /* Non-Rollover / Cover Open (2 Columns) */
             {
-                if (!DLMS_Build_Class7_Metadata(&apdu_len, attr, 0, 0x06, event_capture_objs, sizeof(event_capture_objs), Tamper_Profile_Entries_In_Use[event_type]))
+                if (!DLMS_Build_Class7_Metadata(&apdu_len, attr, 0, 0x02, nonroll_capture_objs, sizeof(nonroll_capture_objs), Tamper_Profile_Entries_In_Use[event_type]))
+                    return DLMS_CLASS7_RESULT_REJECT;
+            }
+            else /* Voltage (0), Current (1), Others (4) (6 Columns) */
+            {
+                /* Make a local copy to dynamically patch the Event Code OBIS */
+                unsigned char patched_capture_objs[sizeof(event_capture_objs)];
+                memcpy(patched_capture_objs, event_capture_objs, sizeof(event_capture_objs));
+
+                /* Patch the 'E' group in the Event Code OBIS: 0.0.96.11.e.255.
+                   Offset 29 corresponds to the 'E' group of the 2nd capture object. */
+                patched_capture_objs[29] = event_type;
+
+                if (!DLMS_Build_Class7_Metadata(&apdu_len, attr, 0, 0x06, patched_capture_objs, sizeof(patched_capture_objs), Tamper_Profile_Entries_In_Use[event_type]))
                     return DLMS_CLASS7_RESULT_REJECT;
             }
         }
