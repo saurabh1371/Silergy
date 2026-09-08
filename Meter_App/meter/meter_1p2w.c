@@ -577,7 +577,7 @@ void meter_sum_data(void)
             Local_RAM_ce_data.w1sum_x = 0;
         }
 
-        // Push local calculations back to active CE registers
+        // Write back to CE active variables
         ce_data.w0sum_x = Local_RAM_ce_data.w0sum_x;
         ce_data.w1sum_x = Local_RAM_ce_data.w1sum_x;
         ce_data.wsum_x = (channel == 0) ? ce_data.w0sum_x : ce_data.w1sum_x;

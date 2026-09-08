@@ -515,7 +515,6 @@ void Stabilization_Check(void)
 
 void Initialize_Metering(void)
 {
-
 	afe_init(&default_ce);
 	cal_get();
 	wd_reset();
@@ -523,8 +522,12 @@ void Initialize_Metering(void)
 
 	if (NM_CT_Detected)
 	{
-		ce_data.ceconfig &= ~BIT1; // PULSE_FAST=1
-		ce_data.ceconfig &= ~BIT0; // PULSE_SLOW=0
+		ce_data.ceconfig &= ~BIT1; // Clear PULSE_FAST
+		ce_data.ceconfig &= ~BIT0; // Clear PULSE_SLOW
+	}
+	else
+	{
+		ce_data.ceconfig &= ~BIT29; // Ensure RFS=0 in mains
 	}
 
 	ReadCalConstants();
@@ -532,15 +535,15 @@ void Initialize_Metering(void)
 
 	if (NM_CT_Detected == 1)
 	{
-		SYS->MPU_CLK_b.mpu_spd = 0; // Update mpu_spd
-		ce_data.ceconfig |= BIT29;	//==>VLS=1
+		SYS->MPU_CLK_b.mpu_spd = 0; // 786 kHz with VLS=1
+		ce_data.ceconfig |= BIT29;	// RFS=1
 	}
 	else
 	{
-		SYS->MPU_CLK_b.mpu_spd = 3; // Update mpu_spd	//RAJIV
+		SYS->MPU_CLK_b.mpu_spd = 3; // 851 kHz with VLS=0
 	}
 
-	sys_set_mpuclk(SYS->MPU_CLK_b.mpu_spd, ADC->CNTL_b.adc_vls); // 851kHz with VLS=0; 786KHz VLS=1
+	sys_set_mpuclk(SYS->MPU_CLK_b.mpu_spd, ADC->CNTL_b.adc_vls);
 }
 
 void ReadShuntKW(void);
@@ -570,48 +573,27 @@ uint32_t WakeFromRegisterCopy;
 // mechanism CalibrateShunt()/CalibrateCT() already use at runtime.
 // meter_start()/afe_init() are deliberately NOT re-run here: doing so
 // would reset the CE's energy accumulators mid-cycle.
-#define NM_DEBOUNCE_SEC 3 // consecutive 1-sec samples required before switching
+
+// --- Live NM mode switch variables ---
+#define NM_FAST_DEBOUNCE_TICKS 2 // 2 ticks * 100ms = 200ms debounce
 static uint8_t NM_EnterDebounceCnt = 0;
 static uint8_t NM_ExitDebounceCnt = 0;
+static volatile uint8_t RequestNMMode = 0xFF; // 0xFF = idle, 1 = enter NM, 0 = exit NM
 
 static void ApplyNMMode(uint8_t new_nm_state)
 {
 	if (NM_CT_Detected == new_nm_state)
 		return;
 
-	afe_pulse_disable(); // Mute pulse GPIOs while the CE is reconfigured
 	NM_CT_Detected = new_nm_state;
 
-	afe_init(&default_ce);
-	cal_get();
-	meter_start(&default_ce);
+	// Use the validated, complete initialization that runs at power-on
+	Initialize_Metering();
 
-	if (NM_CT_Detected)
-	{
-		ce_data.ceconfig &= ~BIT1; // PULSE_FAST = 0
-		ce_data.ceconfig &= ~BIT0; // PULSE_SLOW = 0
-	}
-
-	ReadCalConstants();
-
-	if (NM_CT_Detected == 1)
-	{
-		SYS->MPU_CLK_b.mpu_spd = 0; // 786 kHz with VLS = 1
-		ce_data.ceconfig |= BIT29;	// RFS = 1
-	}
-	else
-	{
-		SYS->MPU_CLK_b.mpu_spd = 3; // 851 kHz with VLS = 0
-		ce_data.ceconfig &= ~BIT29; // RFS = 0
-	}
-
-	// Apply MPU clock and VLS setting
-	sys_set_mpuclk(SYS->MPU_CLK_b.mpu_spd, ADC->CNTL_b.adc_vls);
-
-	// Re-initialize Timer1 with the updated SystemCoreClock
+	// Re-synchronize Timer1 with the updated SystemCoreClock
 	timer1_start(TIMER1_MSEC, Timer1_Interrupt);
 
-	// NEVER enable optical power in NM mode (conserves CT power supply)
+	// Ensure optical transceiver does not drain weak CT supply in NM
 	optical_power_enable(false);
 
 	if (NM_CT_Detected)
@@ -627,6 +609,9 @@ static void ApplyNMMode(uint8_t new_nm_state)
 	Mains_Supply_DIO = 0;
 	NM_EnterDebounceCnt = 0;
 	NM_ExitDebounceCnt = 0;
+
+	// Update LCD immediately so the NM icon lights up in 200ms instead of 10s
+	TaskAutoScroll();
 }
 
 int main(void)
@@ -749,82 +734,81 @@ int main(void)
 	{
 		if (SYS->STAT_b.v3a_nok) // if V3P3A is below its threshold
 		{
-			if (PushButtonCommMode == 0)
-			{
-				afe_disable();
-				meter_save_data(); // Save the meter data.
-			}
+			// 1 ms glitch filter: verify sustained power loss vs. pulse/EEPROM transient dip
+			delay(DELAY_US(1000));
 
-			while (1)
+			if (SYS->STAT_b.v3a_nok)
 			{
-				if (SYS->STAT_b.v3a_nok)
+				if (PushButtonCommMode == 0)
 				{
-					if (WakeFromReason == WAKE_FROM_PB)
+					afe_disable();
+					meter_save_data(); // Save the meter data.
+				}
+
+				while (1)
+				{
+					if (SYS->STAT_b.v3a_nok)
 					{
-						_1_SecFunction();
-
-						//*****************
-						if (PushButtonCommMode == 1)
+						if (WakeFromReason == WAKE_FROM_PB)
 						{
-							uint8_t dload_seen = 0;
-							uint8_t dload_shown = 0;
-							DLMS_HDLC_ResetSession();
+							_1_SecFunction();
 
-							lcd_clear();
-							lcd_put_flash_str(1, "Conn"); // idle state
-							Put_Data_On_LCD();
-							while (Communication_Enable_Counter < 20)
+							if (PushButtonCommMode == 1)
 							{
-								DLMS_HDLC_ProcessFrame();
-								serial_comm();
-								if (Dlms_Comm_Active)
+								uint8_t dload_seen = 0;
+								uint8_t dload_shown = 0;
+								DLMS_HDLC_ResetSession();
+
+								lcd_clear();
+								lcd_put_flash_str(1, "Conn");
+								Put_Data_On_LCD();
+								while (Communication_Enable_Counter < 20)
 								{
-									dload_seen = 1;
-									if (!dload_shown)
+									DLMS_HDLC_ProcessFrame();
+									serial_comm();
+									if (Dlms_Comm_Active)
 									{
-										lcd_clear();
-										lcd_put_flash_str(1, "dload");
-										Put_Data_On_LCD();
-										dload_shown = 1;
+										dload_seen = 1;
+										if (!dload_shown)
+										{
+											lcd_clear();
+											lcd_put_flash_str(1, "dload");
+											Put_Data_On_LCD();
+											dload_shown = 1;
+										}
 									}
+									else if (dload_seen)
+									{
+										break;
+									}
+									_1_SecFunction();
+									if (!(SYS->STAT_b.v3a_nok))
+										break;
 								}
-								else if (dload_seen)
-								{
-									break; // session ended (DISC ya 3-sec silence) -> turant stop
-								}
-								_1_SecFunction();
-								if (!(SYS->STAT_b.v3a_nok)) // if power comes in between, reset meter
-									break;
+								lcd_clear();
+								Put_Data_On_LCD();
+								SYS->MOD_CNTL |= BIT31;
+								while (1)
+									;
 							}
-							lcd_clear(); // LCD off - no auto-scroll parameter after this
-							Put_Data_On_LCD();
-							SYS->MOD_CNTL |= BIT31;
-							while (1)
-								;
+						}
+						else
+						{
+							Sleep();
 						}
 					}
-					else
+					else // Power restored
 					{
-						Sleep();
+						SYS->MOD_CNTL |= BIT31;
+						while (1)
+							;
 					}
-				}
-				else // Power restored
-				{
-					SYS->MOD_CNTL |= BIT31;
-					while (1)
-						;
 				}
 			}
 		}
 		else
 		{
-			// UART2->DATA =2;
 			main_mission_mode();
-
-			if (NM_CT_Detected == 0)
-			{
-				// dlms_server_process(hdlc_handle);
-			}
 
 			/* --- THE DLMS BRAIN --- */
 			DLMS_HDLC_ProcessFrame();
@@ -832,7 +816,7 @@ int main(void)
 
 			if (Dlms_Comm_Active)
 			{
-				if (!dload_lcd_shown) // <-- sirf rising edge pe ek baar likho
+				if (!dload_lcd_shown)
 				{
 					lcd_clear();
 					lcd_put_flash_str(1, "dload");
@@ -843,20 +827,21 @@ int main(void)
 			}
 			else if (dload_lcd_shown)
 			{
-				dload_lcd_shown = 0; // falling edge -> auto-scroll wapas le lega
+				dload_lcd_shown = 0;
 			}
 
 			_1_SecFunction();
-			// ser2_tx_ch(0xaa);
 
-			if ((NM_CT_Detected == 1) && (Mains_Supply_DIO == 1))
+			// Handle debounced mode switch from Timer1_Interrupt
+			if (RequestNMMode != 0xFF)
 			{
-				ApplyNMMode(0);
+				ApplyNMMode(RequestNMMode);
+				RequestNMMode = 0xFF;
 			}
-			else if ((NM_CT_Detected == 0) && (Temp_inst_voltage < 4) && (PowerOnSec > 2))
+			else if ((NM_CT_Detected == 0) && (Temp_inst_voltage < 4) && (PowerOnSec > 5))
 			{
-				// Only reset if NM pin is NOT actively asserted/debouncing
-				if (gpio_get_state(NM_DETECT_PIN))
+				// Only reset if NM pin has stayed steadily high (not in NM mode) for > 1 second
+				if (gpio_get_state(NM_DETECT_PIN) && (NM_EnterDebounceCnt == 0))
 				{
 					SYS->MOD_CNTL |= BIT31;
 					while (1)
@@ -1053,6 +1038,7 @@ uint16_t TestTimer_1;
 uint8_t OneSecondCounter = 0, _1_SecFlag = 0;
 #define WDRESET_TIME_SEC 5
 #define POWER_STABLE_DURATION 5
+
 void Timer1_Interrupt(void)
 {
 	TestTimer_1++;
@@ -1063,11 +1049,47 @@ void Timer1_Interrupt(void)
 		{
 			if (SYS->WAKE_SRC_b.ws_vsys) // Save Data
 			{
-				// eeprom_write (RTC_PowerfailAddr,(uint8_t *)&RTC_Array, 6);
-				//	EnergyUpdate();
 				PowerFailDataSaveFlag = 1;
 				PowerOnCount = 0; // incase supply restores here
 			}
+		}
+	}
+
+	// --- FAST HARDWARE PIN DEBOUNCE (100ms per tick) ---
+	if (NM_CT_Detected == 0)
+	{
+		if (!gpio_get_state(NM_DETECT_PIN)) // NM Pin active LOW
+		{
+			if (NM_EnterDebounceCnt < NM_FAST_DEBOUNCE_TICKS)
+				NM_EnterDebounceCnt++;
+
+			if (NM_EnterDebounceCnt >= NM_FAST_DEBOUNCE_TICKS)
+			{
+				RequestNMMode = 1; // Request switch to NM mode (200ms)
+				NM_EnterDebounceCnt = 0;
+			}
+		}
+		else
+		{
+			NM_EnterDebounceCnt = 0;
+		}
+	}
+	else
+	{
+		if (gpio_get_state(NM_DETECT_PIN)) // Mains restored HIGH
+		{
+			if (NM_ExitDebounceCnt < (NM_FAST_DEBOUNCE_TICKS + 1))
+				NM_ExitDebounceCnt++;
+
+			if (NM_ExitDebounceCnt >= (NM_FAST_DEBOUNCE_TICKS + 1))
+			{
+				RequestNMMode = 0; // Request switch to Mains mode (300ms)
+				NM_ExitDebounceCnt = 0;
+			}
+		}
+		else
+		{
+			NM_ExitDebounceCnt = 0;
 		}
 	}
 
@@ -1081,22 +1103,23 @@ void Timer1_Interrupt(void)
 			PowerOnCount++;
 	}
 
-	//******************Check Push Button************************* ,PushButtonDisplay,LCD_Auto_Parm;
-	if (PushButtonCommMode == 0) // Not required in push button comm mode
+	//******************Check Push Button*************************
+	if (PushButtonCommMode == 0)
 	{
 		SwitchCurrentState = pb_read();
 		if (SwitchLastState != SwitchCurrentState)
+		{
 			if (SwitchCurrentState)
 			{
 				if (PushButtonDisplayFlag == 1)
-					LCD_PushButton_Parm++; // already in Push Mode - manual advance to next screen
-				// else: first press of this cycle - enter Push Mode at screen 0 (LCD segment check)
+					LCD_PushButton_Parm++;
 				NoOfSeconds = 0;
 				PushButtonDisplayFlag = 1;
 				PushButtonTimeOut = 0;
 				TaskAutoScroll();
 			}
-		SwitchLastState = SwitchCurrentState;
+			SwitchLastState = SwitchCurrentState;
+		}
 	}
 	//************************************************************
 
@@ -1107,7 +1130,7 @@ void Timer1_Interrupt(void)
 		WDResetCounter_5Sec = 0;
 		wd_reset();
 	}
-	else if ((WatchdogResetVar == 0) && (WDResetCounter_5Sec < WDRESET_TIME_SEC)) // about 5000mSec
+	else if ((WatchdogResetVar == 0) && (WDResetCounter_5Sec < WDRESET_TIME_SEC))
 	{
 		WDResetCounter_5Sec++;
 		wd_reset();
@@ -1130,40 +1153,12 @@ void _1_SecFunction(void)
 		if (PushButtonCommMode == 1)
 		{
 			Communication_Enable_Counter++;
-			// if (!Dlms_Comm_Active) // idle wait screen only before HHU actually starts talking
-			// 	BatteryModeTask();
 			return;
 		}
 
 		TaskAutoScroll();
 
-		if (NM_CT_Detected == 1)
-		{
-			// Debounce mains-restored before flagging exit (checked in main()'s loop).
-			if (gpio_get_state(NM_DETECT_PIN)) // NM Pin
-			{
-				if (NM_ExitDebounceCnt < NM_DEBOUNCE_SEC)
-					NM_ExitDebounceCnt++;
-			}
-			else
-				NM_ExitDebounceCnt = 0;
-
-			Mains_Supply_DIO = (NM_ExitDebounceCnt >= NM_DEBOUNCE_SEC) ? 1 : 0;
-		}
-		else
-		{
-			if (!(gpio_get_state(NM_DETECT_PIN))) // NM Pin engaged while running in normal mode
-			{
-				// Debounce before switching live -- see ApplyNMMode().
-				if (NM_EnterDebounceCnt < NM_DEBOUNCE_SEC)
-					NM_EnterDebounceCnt++;
-
-				if (NM_EnterDebounceCnt >= NM_DEBOUNCE_SEC)
-					ApplyNMMode(1);
-			}
-			else
-				NM_EnterDebounceCnt = 0;
-		}
+		// (Slow NM debounce logic removed from here; handled in Timer1_Interrupt)
 
 		if (PowerOnSec < 10)
 			PowerOnSec++;
@@ -1175,18 +1170,15 @@ void _1_SecFunction(void)
 		prev_hr = read_eeprom(HR_LOC);
 
 		dlms_actions_func();
-		// inst_param_func();
 		load_func();
 
-		// if((rtc_status==1)&&(ep_status==1))
-		//{
 		select_season();
 		history_func();
 		update_tod_data();
-		tamper_func(); //*/
-					   //}
+		tamper_func();
 	}
 }
+
 #define INVOKE_BL_CMD 99
 #define CAL_Default_Constants 101
 #define CAL_Shunt_Read_UPF_Power 102
