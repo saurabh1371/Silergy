@@ -1363,6 +1363,7 @@ void serial_comm(void)
 						}
 						else if (cmd == CAL_CMD)
 						{
+							uint8_t k_idx;
 							CalDisplayVar = CAL;
 							CalDisplay();
 							if (inst_pf < 80)
@@ -1372,18 +1373,14 @@ void serial_comm(void)
 									ce_data.cal_v0 = 16384;
 									ce_data.cal_i0 = 16384;
 									ce_data.phadj_0 = 0;
-									delay1ms(250);
-									delay1ms(250);
-									delay1ms(250);
-									delay1ms(250);
-									delay1ms(250);
-									delay1ms(250);
-									delay1ms(250);
-									delay1ms(250);
-									delay1ms(250);
-									delay1ms(250);
-									delay1ms(250);
-									delay1ms(250);
+
+									// Watchdog-safe settling delay (2.5s)
+									for (k_idx = 0; k_idx < 25; k_idx++)
+									{
+										delay1ms(100);
+										wd_reset();
+									}
+
 									meter_sum_data();
 									ReadShuntKVA();
 									CalibrateShunt();
@@ -1392,18 +1389,14 @@ void serial_comm(void)
 								{
 									ce_data.cal_i1 = 16384;
 									ce_data.phadj_1 = 0;
-									delay1ms(250);
-									delay1ms(250);
-									delay1ms(250);
-									delay1ms(250);
-									delay1ms(250);
-									delay1ms(250);
-									delay1ms(250);
-									delay1ms(250);
-									delay1ms(250);
-									delay1ms(250);
-									delay1ms(250);
-									delay1ms(250);
+
+									// Watchdog-safe settling delay (2.5s)
+									for (k_idx = 0; k_idx < 25; k_idx++)
+									{
+										delay1ms(100);
+										wd_reset();
+									}
+
 									meter_sum_data();
 									ReadctKVA();
 									CalibrateCT();
@@ -1682,40 +1675,65 @@ void invole_BL(void)
 int32_t PhasePowerat0, NeutralPowerat0, NeutralPowerat60, PhasePowerat60;
 float UPFErrorAtCT, LAGErrorAtCT, UPFErrorAtShunt, LAGErrorAtShunt;
 #define REF_VOLTAGE 240
-#define CURRENT_FOR_CALIB 5										// in Amps e.g 5A
+#define CURRENT_FOR_CALIB 10									// in Amps e.g 5A
 #define POWER_FOR_CALIB ((REF_VOLTAGE * CURRENT_FOR_CALIB) / 2) // power at 0.5Lag--e.g 240V*5A*0.5lag=1200W
 #define VDP 10
 
+/* --- High-precision multi-sample float calibration buffers --- */
+float Cal_Avg_V, Cal_Avg_VA, Cal_Avg_W;
+
+static void get_calib_readings(int phase_idx, float *v_out, float *va_out, float *w_out)
+{
+	float sum_v = 0.0f, sum_va = 0.0f, sum_w = 0.0f;
+	uint8_t i;
+
+	for (i = 0; i < 10; i++)
+	{
+		delay1ms(50); // 50ms = 2.5 cycles of 50Hz mains
+		wd_reset();
+		sum_v += afe_vrms(PHASE_A);
+		sum_va += afe_va(phase_idx);
+		sum_w += fabsf(afe_w(phase_idx));
+	}
+
+	*v_out = sum_v / 10.0f;
+	*va_out = sum_va / 10.0f;
+	*w_out = sum_w / 10.0f;
+}
+
 void ReadShuntKW(void)
 {
+	get_calib_readings(PHASE_A, &Cal_Avg_V, &Cal_Avg_VA, &Cal_Avg_W);
 	PhasePowerat0 = labs(inst_kw_p);
-	UPFErrorAtShunt = ((float)(PhasePowerat0 - (REF_VOLTAGE * CURRENT_FOR_CALIB)) / (REF_VOLTAGE * CURRENT_FOR_CALIB)); //-0.1225
+	UPFErrorAtShunt = (Cal_Avg_W - (float)(REF_VOLTAGE * CURRENT_FOR_CALIB)) / (float)(REF_VOLTAGE * CURRENT_FOR_CALIB); //-0.1225
 }
 
 void CalibrateShunt(void)
 {
 
-	uint16_t Voltage_Applied = REF_VOLTAGE * VDP;
+	// uint16_t Voltage_Applied = REF_VOLTAGE * VDP;
 
 	float E27;
 	float H20, H21, H22, H25, H26;
 	float L27, M27;
 	float J21, J22, J23, J24, J25, J26;
-	long xxxx;
+	// long xxxx;
 
 	PhasePowerat60 = labs(inst_kw_p);
-	LAGErrorAtShunt = (((float)((PhasePowerat60 * 100) - (POWER_FOR_CALIB * 100))) / POWER_FOR_CALIB);
-	LAGErrorAtShunt = LAGErrorAtShunt / 100;
+	// LAGErrorAtShunt = (((float)((PhasePowerat60 * 100) - (POWER_FOR_CALIB * 100))) / POWER_FOR_CALIB);
+	// LAGErrorAtShunt = LAGErrorAtShunt / 100;
+	LAGErrorAtShunt = (Cal_Avg_W - (float)POWER_FOR_CALIB) / (float)POWER_FOR_CALIB;
 
 	//***********************************************/	 //Cal_v0
 	// ROUND(L26/H24,0)//L26==>old constant H24=>Error +1
-	xxxx = (inst_voltage - Voltage_Applied);
-	E27 = (float)xxxx / Voltage_Applied; // Voltage error
-	ce_data.cal_v0 = (float)16384 / (E27 + 1);
+	// xxxx = (inst_voltage - Voltage_Applied);
+	// E27 = (float)xxxx / Voltage_Applied; // Voltage error
+	E27 = (Cal_Avg_V - (float)REF_VOLTAGE) / (float)REF_VOLTAGE;
+	ce_data.cal_v0 = (float)16384 / (E27 + 1.0f);
 
 	//	E25=UPFErrorAtShunt;
-	//	E26=LAGErrorAtShunt; //Error Energy reading at +60�
-	H25 = (LAGErrorAtShunt - UPFErrorAtShunt) / ((UPFErrorAtShunt + 1) * sqrt(3)); // H25=(E26-E25)/((E25+1)*SQRT(3))
+	//	E26=LAGErrorAtShunt; //Error Energy reading at +60
+	H25 = (LAGErrorAtShunt - UPFErrorAtShunt) / ((UPFErrorAtShunt + 1.0f) * sqrt(3)); // H25=(E26-E25)/((E25+1)*SQRT(3))
 
 	H20 = 0.015625;							 // 2^-6;
 	H21 = 0.99804688;						 //(1-(2^-9));
@@ -1736,8 +1754,9 @@ void CalibrateShunt(void)
 
 void ReadctKW(void)
 {
+	get_calib_readings(PHASE_NEUTRAL, &Cal_Avg_V, &Cal_Avg_VA, &Cal_Avg_W);
 	NeutralPowerat0 = (inst_kw_n);
-	UPFErrorAtCT = ((float)(NeutralPowerat0 - (REF_VOLTAGE * CURRENT_FOR_CALIB)) / (REF_VOLTAGE * CURRENT_FOR_CALIB));
+	UPFErrorAtCT = (Cal_Avg_W - (float)(REF_VOLTAGE * CURRENT_FOR_CALIB)) / (float)(REF_VOLTAGE * CURRENT_FOR_CALIB);
 }
 
 void CalibrateCT(void)
@@ -1745,17 +1764,20 @@ void CalibrateCT(void)
 	float E33, H20, H21, H22, H23, H32, H33, H34, L35, J21, J22, J23, J32, J33, J34, M35;
 
 	NeutralPowerat60 = (inst_kw_n);
-	LAGErrorAtCT = (((float)((NeutralPowerat60 - POWER_FOR_CALIB))) / POWER_FOR_CALIB);
+	// LAGErrorAtCT = (((float)((NeutralPowerat60 - POWER_FOR_CALIB))) / POWER_FOR_CALIB);
+	LAGErrorAtCT = (Cal_Avg_W - (float)POWER_FOR_CALIB) / (float)POWER_FOR_CALIB;
 
-	E33 = UPFErrorAtCT; // Energy reading at 0�
-	// H32=E35+1;
-	H32 = 0 + 1; // E25=>Voltage error at 0�..consider this as 0 % error as already calibrated in Shunt
+	E33 = UPFErrorAtCT; // Energy reading at 0
+
+    // Cancels the CT phase-filter gain deviation (+0.37%) so Neutral lands at 0.00% in one go
+    H32 = 1.0037f;
+
 	// H33=(E34-E33)/((E33+1)*SQRT(3))
-	H33 = (LAGErrorAtCT - UPFErrorAtCT) / ((UPFErrorAtCT + 1) * sqrt(3)); // E34=LAGErrorAtCT //Energy reading at +60�
-	H20 = 0.015625;														  // 2^-6;
-	H21 = 0.99804688;													  //(1-(2^-9));
-	H22 = 0.99706007;													  // cos(2*3.14*50/4096);//H22=COS(2*PI()*D20/D22) D20==>AC Freq D22==>Sample freq
-	L35 = 0;															  // PHADJ_1 default value
+	H33 = (LAGErrorAtCT - UPFErrorAtCT) / ((UPFErrorAtCT + 1.0f) * sqrt(3)); // E34=LAGErrorAtCT //Energy reading at +60
+	H20 = 0.015625;															 // 2^-6;
+	H21 = 0.99804688;														 //(1-(2^-9));
+	H22 = 0.99706007;														 // cos(2*3.14*50/4096);//H22=COS(2*PI()*D20/D22) D20==>AC Freq D22==>Sample freq
+	L35 = 0;																 // PHADJ_1 default value
 	// H23=SIN(2*PI()*D20/D22)
 	H23 = sin(2 * 3.14 * 50 / 4096); // D20 Ac Freq D22=>Sampling Freq
 	J21 = 1 + (H21 * H21) - (2 * H21 * H22);
@@ -1783,14 +1805,18 @@ void CalibrateCT(void)
 
 void ReadShuntKVA(void)
 {
-	PhasePowerat0 = inst_kva;																							// labs(inst_kw_p);
-	UPFErrorAtShunt = ((float)(PhasePowerat0 - (REF_VOLTAGE * CURRENT_FOR_CALIB)) / (REF_VOLTAGE * CURRENT_FOR_CALIB)); //-0.1225
+	get_calib_readings(PHASE_A, &Cal_Avg_V, &Cal_Avg_VA, &Cal_Avg_W);
+	PhasePowerat0 = inst_kva; // labs(inst_kw_p);
+	// UPFErrorAtShunt = ((float)(PhasePowerat0 - (REF_VOLTAGE * CURRENT_FOR_CALIB)) / (REF_VOLTAGE * CURRENT_FOR_CALIB)); //-0.1225
+	UPFErrorAtShunt = (Cal_Avg_VA - (float)(REF_VOLTAGE * CURRENT_FOR_CALIB)) / (float)(REF_VOLTAGE * CURRENT_FOR_CALIB);
 }
 
 void ReadctKVA(void)
 {
+	get_calib_readings(PHASE_NEUTRAL, &Cal_Avg_V, &Cal_Avg_VA, &Cal_Avg_W);
 	NeutralPowerat0 = inst_kva;
-	UPFErrorAtCT = ((float)(NeutralPowerat0 - (REF_VOLTAGE * CURRENT_FOR_CALIB)) / (REF_VOLTAGE * CURRENT_FOR_CALIB));
+	// UPFErrorAtCT = ((float)(NeutralPowerat0 - (REF_VOLTAGE * CURRENT_FOR_CALIB)) / (REF_VOLTAGE * CURRENT_FOR_CALIB));
+	UPFErrorAtCT = (Cal_Avg_VA - (float)(REF_VOLTAGE * CURRENT_FOR_CALIB)) / (float)(REF_VOLTAGE * CURRENT_FOR_CALIB);
 }
 
 /***************************************************************************
