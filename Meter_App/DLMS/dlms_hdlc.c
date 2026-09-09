@@ -301,8 +301,9 @@ static void HDLC_Parse_SNRM_Params(unsigned char *buf, unsigned int len)
     }
 }
 
-/* Called from the UART RX ISR for every incoming byte: tracks frame flags, de-escapes 0x7D sequences,
- * and copies a completed frame into dlms_rx_process_buf for the main loop to pick up */
+/* Called from the UART RX ISR for every incoming byte:
+ * Validates opening/closing flags (0x7E) and accumulates raw bytes up to expected_len.
+ * NOTE: IEC 62056-46 DLMS HDLC Type A does NOT use 0x7D octet-escaping. */
 void DLMS_HDLC_ProcessRxByte(unsigned char rx_data)
 {
     unsigned int expected_len = 0;
@@ -314,126 +315,67 @@ void DLMS_HDLC_ProcessRxByte(unsigned char rx_data)
         {
             dlms_frame_active = 1;
             dlms_rx_index = 0;
-            hdlc_escape_flag = 0;
         }
         return;
     }
 
-    /* Extract length from MAC Header */
+    /* Extract length from MAC Header once the first 2 bytes are available */
     if (dlms_rx_index >= 2)
     {
         expected_len = ((dlms_rx_buf[0] & 0x07) << 8) | dlms_rx_buf[1];
     }
 
-    /* -------------------------------------------------------------
-     * End of Frame / Heuristic Boundary Resolution
-     * ------------------------------------------------------------- */
+    /* 2. Handle Flag Byte (0x7E) */
     if (rx_data == 0x7E)
     {
+        /* Ignore consecutive 0x7E preamble/sync flags */
         if (dlms_rx_index == 0)
-            return; /* Handle consecutive 7E 7E safely */
-
-        /* STRICT HDLC: Normal Frame Completion (MUST BE EXACT LENGTH) */
-        if (expected_len > 0 && dlms_rx_index == expected_len)
         {
-            if (dlms_rx_process_ready == 0)
-            {
-                unsigned int i;
-                for (i = 0; i < expected_len; i++)
-                    dlms_rx_process_buf[i] = dlms_rx_buf[i];
-                dlms_rx_process_len = expected_len;
-                dlms_rx_process_ready = 1;
-            }
-        }
-        /* RECOVERY 1: Unescaped 0x7E or missing 0x7D.
-         * The frame is 1 byte short. */
-        if (expected_len > 0 && dlms_rx_index == expected_len - 1)
-        {
-            unsigned int fcs_calc, fcs_rec;
-
-            /* Hypothesis A: The 0x7E we just received is the unescaped 2nd byte of FCS */
-            dlms_rx_buf[dlms_rx_index] = 0x7E;
-            fcs_calc = get_hdlc_fcs(dlms_rx_buf, expected_len - 2);
-            fcs_rec = dlms_rx_buf[expected_len - 2] | (0x7E << 8);
-
-            if (fcs_calc == fcs_rec)
-            {
-                /* Hypothesis A is correct! Unescaped 7E in the FCS. */
-                dlms_rx_index++;
-            }
-            else
-            {
-                /* Hypothesis B: Client failed to escape 0x7D in the checksum.
-                 * The parser wrongly consumed 0x7D as an escape, shrinking the frame. */
-                dlms_rx_buf[dlms_rx_index] = dlms_rx_buf[dlms_rx_index - 1] ^ 0x20;
-                dlms_rx_buf[dlms_rx_index - 1] = 0x7D;
-                dlms_rx_index++;
-            }
-
-            if (dlms_rx_process_ready == 0)
-            {
-                unsigned int i;
-                for (i = 0; i < expected_len; i++)
-                    dlms_rx_process_buf[i] = dlms_rx_buf[i];
-                dlms_rx_process_len = expected_len;
-                dlms_rx_process_ready = 1;
-            }
-            dlms_frame_active = 1;
-            dlms_rx_index = 0;
-            hdlc_escape_flag = 0;
             return;
         }
-        /* RECOVERY 2: Client failed to escape 0x7E in the payload/checksum.
-         * If the frame hasn't reached expected_len, it is mathematically impossible
-         * to be the true end flag. Treat as literal payload. */
-        else if (expected_len > 0 && dlms_rx_index < expected_len)
-        {
-            /* Prevent infinite lockup from maliciously oversized frames */
-            if (dlms_rx_index >= DLMS_MAX_FRAME_SIZE)
-            {
-                dlms_frame_active = 1; /* Treat this 0x7E as the start of the next frame */
-                dlms_rx_index = 0;
-                hdlc_escape_flag = 0;
-                return;
-            }
 
+        /* Protect against 126-byte frames: if rx_index == 1 and byte 0 is 0xA0,
+         * this 0x7E is the frame length byte (len = 126), NOT a closing flag! */
+        if (dlms_rx_index == 1 && (dlms_rx_buf[0] & 0xF0) == 0xA0)
+        {
             dlms_rx_buf[dlms_rx_index++] = rx_data;
-            return; /* DO NOT end the frame! Keep listening. */
+            return;
         }
 
-        /* If dlms_rx_index > expected_len, it's accumulated garbage from broken frames.
-         * It is safely discarded below and state resets for the next frame. */
-
-        dlms_frame_active = 1;
-        dlms_rx_index = 0;
-        hdlc_escape_flag = 0;
-        return;
-    }
-
-    /* -------------------------------------------------------------
-     * Standard HDLC Data Payload & Transparency
-     * ------------------------------------------------------------- */
-    if (rx_data == 0x7D)
-    {
-        /* BUGGY CLIENT WORKAROUND: Unescaped 0x7D arriving exactly in the FCS space */
-        if (expected_len > 0 && dlms_rx_index >= (expected_len - 2))
+        /* Standard Frame Completion: we reached the exact frame length */
+        if (expected_len >= 7 && dlms_rx_index == expected_len)
+        {
+            if (dlms_rx_process_ready == 0)
+            {
+                unsigned int i;
+                for (i = 0; i < expected_len; i++)
+                {
+                    dlms_rx_process_buf[i] = dlms_rx_buf[i];
+                }
+                dlms_rx_process_len = expected_len;
+                dlms_rx_process_ready = 1;
+            }
+            dlms_frame_active = 0;
+            dlms_rx_index = 0;
+            return;
+        }
+        /* 0x7E inside payload or FCS before expected_len is reached */
+        else if (expected_len >= 7 && dlms_rx_index < expected_len)
         {
             if (dlms_rx_index < DLMS_MAX_FRAME_SIZE)
+            {
                 dlms_rx_buf[dlms_rx_index++] = rx_data;
+            }
+            return;
         }
-        else
-        {
-            hdlc_escape_flag = 1;
-        }
+
+        /* Premature/Unexpected 0x7E: restart frame capture cleanly */
+        dlms_frame_active = 1;
+        dlms_rx_index = 0;
         return;
     }
 
-    if (hdlc_escape_flag == 1)
-    {
-        rx_data ^= 0x20;
-        hdlc_escape_flag = 0;
-    }
-
+    /* 3. Standard Raw Byte Reception (No 0x7D escaping) */
     if (dlms_rx_index < DLMS_MAX_FRAME_SIZE)
     {
         dlms_rx_buf[dlms_rx_index++] = rx_data;
