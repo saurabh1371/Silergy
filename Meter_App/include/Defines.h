@@ -234,7 +234,7 @@ extern uint8_t NM_CT_Detected;
 #define DLMS_PFAIL_EVENT_POS_LOC 4316		 // 2 bytes
 #define DLMS_PFAIL_EVENT_LOC PFAIL_EVENT_LOC // Maps to your 6600
 #define DLMS_PFAIL_EVENT_SIZE EVENT_SIZE	 // Maps to your 60
-#define PF_LOG_MIN_DURATION_MIN 1			 // 1 minute outage threshold
+#define PF_LOG_MIN_DURATION_MIN 5			 // 5 minute outage threshold
 
 #define VOLT_EVENT_LOC 4400		//(2+3+3+2+2+1+4)*60 =17*60=1020
 #define AMP_EVENT_LOC 5500		//(2+3+3+2+2+1+4)*60 =17*60=1020
