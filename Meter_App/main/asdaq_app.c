@@ -3471,34 +3471,24 @@ void store_event_data(unsigned char event_type, unsigned int event_id, unsigned 
 
 void power_fail_func(void)
 {
-  unsigned long int tmp_long; //, location;
+  unsigned long int tmp_long;
   unsigned int tmp_int;
   unsigned char i, j;
 
-  // fower fail check
+  // Calculate time difference between current RTC and last saved EEPROM time
   tmp_long = from_eeprom(DATE_LOC, 3);
 
   tmp_int = tmp_long % 100;
   scratch = tmp_int; // yr
   tmp_int = (tmp_long / 100) % 100;
-  // scratch=(scratch*365)+tmp_int;//mnth
   scratch = (scratch * 365);
   for (i = 1; i < tmp_int; i++)
   {
     j = days_in_month(i - 1);
-
-    // if(tmp_int==2)
-    //{
-    //         i=(2000+d_yr)%4;
-    //         if(i==0)
-    //                j=29;
-    // }
-
     scratch = scratch + j;
   }
   tmp_int = (tmp_long / 10000);
   scratch = scratch + tmp_int;
-  // scratch=(scratch*30)+tmp_int;//day
 
   tmp_long = from_eeprom(TIME_LOC, 3);
   tmp_int = (tmp_long / 10000);
@@ -3511,17 +3501,9 @@ void power_fail_func(void)
   for (i = 1; i < d_mnth; i++)
   {
     j = days_in_month(i - 1);
-    // if(tmp_int==2)
-    //{
-    //         i=(2000+d_yr)%4;
-    //         if(i==0)
-    //                 j=29;
-    // }
     scratch1 = scratch1 + j;
   }
 
-  // scratch1=(scratch1*365)+d_mnth;
-  // scratch1=(scratch1*30)+d_day;
   scratch1 = scratch1 + d_day;
   scratch1 = (scratch1 * 24) + t_hr;
   scratch1 = (scratch1 * 60) + t_min;
@@ -3531,15 +3513,18 @@ void power_fail_func(void)
   else
     scratch1 = 0;
 
-  if (scratch1 >= 5) // 30)//15)//35
+  if (scratch1 >= PF_LOG_MIN_DURATION_MIN)
   {
-    store_event_data(PFAIL_EVENT, 101, 0); // occ
-    store_event_data(PFAIL_EVENT, 102, 1); // res
+    store_event_data(PFAIL_EVENT, 101, 0); // Log occurrence (uses DATE_LOC/TIME_LOC internally)
+    store_event_data(PFAIL_EVENT, 102, 1); // Log restoration (uses current real_time)
+
     Cum_Power_Off_Count = Cum_Power_Off_Count + 1;
     Cum_Power_Off_Dur = Cum_Power_Off_Dur + scratch1;
+
     to_eeprom(POFF_CNT_LOC, Cum_Power_Off_Count, 4);
     to_eeprom(POFF_DUR_LOC, Cum_Power_Off_Dur, 4);
   }
+
   to_eeprom(TIME_LOC, real_time, 3);
 }
 

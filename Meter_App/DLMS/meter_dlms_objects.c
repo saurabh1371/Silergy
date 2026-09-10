@@ -32,9 +32,6 @@
 #define config_event_pos scratch2
 #define CONFIG_EVENT_SIZE 10
 #define CONFIG_EVENT_LOC 0
-#define DLMS_PFAIL_EVENT_SIZE 10
-#define DLMS_PFAIL_EVENT_LOC 0
-#define DLMS_PFAIL_EVENT_POS_LOC 0
 #define tamper_pos event_pos
 #define TAMPER_SIZE EVENT_SIZE
 #define TAMPER_LOC VOLT_EVENT_LOC
@@ -307,6 +304,15 @@ static void Read_EventCode_Common(unsigned int *apdu_len, unsigned char target_e
             latest_ev_code = (read_eeprom(l_loc) << 8) | read_eeprom(l_loc + 1);
         }
     }
+    else if (target_evt == 200)
+    {
+        h_idx = (dlms_pfail_event_pos == 0) ? (DLMS_PFAIL_EVENT_SIZE - 1) : (dlms_pfail_event_pos - 1);
+        l_loc = DLMS_PFAIL_EVENT_LOC + (h_idx * 6);
+        if (read_eeprom(l_loc + 1) != 0 && read_eeprom(l_loc + 1) != 0xFF)
+        {
+            latest_ev_code = (read_eeprom(l_loc) << 8) | read_eeprom(l_loc + 1);
+        }
+    }
     else if (target_evt < TAMPER_TYPE)
     {
         if ((store_tamper_stat & (1 << target_evt)) != 0)
@@ -345,7 +351,7 @@ static void Read_EventCode_E1(unsigned char attr, unsigned int *apdu_len) /* 0.0
 static void Read_EventCode_E2(unsigned char attr, unsigned int *apdu_len) /* 0.0.96.11.2.255 - not wired to a slot, always reports 0 */
 {
     if (attr == 2)
-        Read_EventCode_Common(apdu_len, 99);
+        Read_EventCode_Common(apdu_len, 200);
 }
 static void Read_EventCode_E3(unsigned char attr, unsigned int *apdu_len) /* 0.0.96.11.3.255 - last config/transaction event */
 {

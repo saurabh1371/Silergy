@@ -473,3 +473,6 @@ typedef struct
 #endif
 
 extern class07_blockload_entry_t g_Class07_BlockLoadBuffer;
+extern unsigned long int utc(unsigned int t_time, unsigned char stat);
+extern unsigned int dlms_pfail_event_pos;
+void power_fail_func(void);

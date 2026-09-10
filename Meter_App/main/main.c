@@ -614,6 +614,32 @@ static void ApplyNMMode(uint8_t new_nm_state)
 	TaskAutoScroll();
 }
 
+unsigned long int utc(unsigned int t_time, unsigned char stat)
+{
+	unsigned long int tmp_long;
+	unsigned char tmp_hr, tmp_min;
+
+	if (stat == 0)
+	{
+		tmp_long = d_yr;
+		tmp_long = (tmp_long * 13) + d_mnth;
+		tmp_long = (tmp_long * 32) + d_day;
+		tmp_hr = t_hr;
+		tmp_min = t_min;
+	}
+	else
+	{
+		tmp_long = prev_yr;
+		tmp_long = (tmp_long * 13) + prev_mnth;
+		tmp_long = (tmp_long * 32) + prev_day;
+		tmp_min = t_time % 100;
+		tmp_hr = (t_time - tmp_min) / 100;
+	}
+	tmp_long = (tmp_long * 24) + tmp_hr;
+	tmp_long = (tmp_long * 60) + tmp_min;
+	return tmp_long;
+}
+
 int main(void)
 {
 	wd_reset(); // Reset the watchdog.
@@ -679,6 +705,7 @@ int main(void)
 	if (WakeFromReason == WAKE_FROM_MAINS)
 	{
 		read_time_date();
+		power_fail_func();
 		TaskAutoScroll();
 	}
 	else // if wake from push button comm mode
@@ -743,6 +770,8 @@ int main(void)
 				{
 					afe_disable();
 					meter_save_data(); // Save the meter data.
+									   /* Save exact minute of power down exactly once */
+					to_eeprom(LAST_POWER_DOWN_TIME_LOC, utc(0, 0), 4);
 				}
 
 				while (1)
@@ -1769,8 +1798,8 @@ void CalibrateCT(void)
 
 	E33 = UPFErrorAtCT; // Energy reading at 0
 
-    // Cancels the CT phase-filter gain deviation (+0.37%) so Neutral lands at 0.00% in one go
-    H32 = 1.0037f;
+	// Cancels the CT phase-filter gain deviation (+0.37%) so Neutral lands at 0.00% in one go
+	H32 = 1.0037f;
 
 	// H33=(E34-E33)/((E33+1)*SQRT(3))
 	H33 = (LAGErrorAtCT - UPFErrorAtCT) / ((UPFErrorAtCT + 1.0f) * sqrt(3)); // E34=LAGErrorAtCT //Energy reading at +60

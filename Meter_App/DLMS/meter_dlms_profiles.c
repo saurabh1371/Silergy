@@ -34,9 +34,6 @@
 #define config_event_pos scratch2
 #define CONFIG_EVENT_SIZE 10
 #define CONFIG_EVENT_LOC 0
-#define DLMS_PFAIL_EVENT_SIZE 10
-#define DLMS_PFAIL_EVENT_LOC 0
-#define DLMS_PFAIL_EVENT_POS_LOC 0
 #define tamper_pos event_pos
 #define TAMPER_SIZE EVENT_SIZE
 #define TAMPER_LOC VOLT_EVENT_LOC
