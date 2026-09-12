@@ -5,11 +5,7 @@
  * should be attached to VPULSE.
  */
 
-/* --- Auto Mode: full scroll list per approved display spec (PCB: P05_B_Gujarat_Big_LCD) ---
- * NOTE: indices are used directly as the LCD_DisplayParm state, in on-screen order.
- * Auto mode free-runs (no timeout): after DISP_AUTO_TOTAL_SCREENS it wraps back to
- * DISP_AUTO_SEG_CHECK and the "AUTO" banner is shown again before the next pass.
- * H1 comes from get_bill_data(1) -> stBilling_Profile (see asdaq_app.c). */
+/* --- Auto Mode --- */
 enum DipSeqAuto
 {
     DISP_AUTO_SEG_CHECK = 0, // 1. LCD segment check (lamp test)
@@ -28,10 +24,7 @@ enum DipSeqAuto
     DISP_AUTO_TOTAL_SCREENS // Sentinel - total screen count, NOT a screen
 };
 
-/* --- Push-button mode: full auto-scrolling sequence (10 s/screen, one cycle then timeout) ---
- * NOTE: indices are used directly as the LCD_PushButton_Parm state, in on-screen order.
- * H1..H6 come from get_bill_data(1..6) -> stBilling_Profile (see asdaq_app.c).
- */
+/* --- Push-button mode ---*/
 enum PBDispSeq
 {
     PB_SEG_CHECK = 0, // LCD segment check (lamp test)
@@ -183,9 +176,6 @@ const char test_str[][15] =
  * is now a passthrough, kept so the call sites stay self-documenting and
  * so a future rescale only needs to change this one line. */
 #define MD_THOUSANDTHS(raw) (raw)
-
-// The following data define the BQ09193A glass, and need not change on
-// different PCBs.
 
 // Define the digits in the display.
 #define DIGIT_CNT 8 // 8 digits, total.

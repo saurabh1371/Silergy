@@ -1,4 +1,7 @@
 SET PATH=C:\Keil_v5\ARM\ARM_Compiler_5.06u7\Bin;C:\WINDOWS\system32;C:\WINDOWS;C:\WINDOWS\System32\Wbem;C:\WINDOWS\System32\WindowsPowerShell\v1.0\;C:\WINDOWS\System32\OpenSSH\;C:\Program Files\Git\cmd;C:\Program Files\Microchip\xc8\v3.10\bin;C:\Program Files\Microchip\xc-dsc\v3.21\bin;C:\Program Files\Microchip\xc16\v2.10\bin;C:\Program Files\Microchip\xc32\v4.60\bin;C:\Program Files\dotnet\;C:\Program Files\RedHat\java-1.8.0-openjdk-1.8.0.452-1\bin;C:\Program Files\RedHat\java-1.8.0-openjdk-1.8.0.452-1\jre\bin;C:\Program Files\nodejs\;C:\Users\Lenovo\AppData\Local\Programs\Python\Python38\Scripts\;C:\Users\Lenovo\AppData\Local\Programs\Python\Python38\;C:\Users\Lenovo\AppData\Local\Microsoft\WindowsApps;C:\Users\Lenovo\AppData\Local\Programs\Microsoft VS Code\bin;C:\Users\Lenovo\.dotnet\tools;C:\Users\Lenovo\AppData\Local\Python\bin;C:\Users\Lenovo\AppData\Roaming\npm
+SET ARMCC5_ASMOPT=--diag_suppress=9931
+SET ARMCC5_CCOPT=--diag_suppress=9931
+SET ARMCC5_LINKOPT=--diag_suppress=9931
 SET CPU_TYPE=ARMCM0
 SET CPU_VENDOR=ARM
 SET UV2_TARGET=Target 1

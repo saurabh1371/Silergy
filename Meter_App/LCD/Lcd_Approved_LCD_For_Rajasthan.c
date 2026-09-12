@@ -22,6 +22,7 @@ void TamperIcons(void);
 uint8_t LCD_DisplayParm;
 
 uint32_t eepromtestvar;
+
 /***************************************************************************
  * Description:
  *   Write a bit to the LCD map.
@@ -249,11 +250,11 @@ uint8_t NoOfSeconds;
 static void PB_LoadBillHistory(uint8_t idx);
 
 /* --- Mode-entry banners ("AUTO" / "PUSH"), held for MODE_BANNER_DURATION_SEC
- * seconds before the corresponding scroll cycle starts (see display spec). */
+ * seconds before the corresponding scroll cycle starts. */
 static uint8_t s_push_banner_ctr;
 static uint8_t s_push_banner_done;
 static uint8_t s_auto_banner_ctr;
-static uint8_t s_auto_banner_done; // 0 = show "AUTO" before the next cycle (incl. at power-up)
+static uint8_t s_auto_banner_done; // 0 = show "AUTO" before the next cycle
 
 void TaskAutoScroll(void)
 {
@@ -477,17 +478,6 @@ static void PB_LoadBillHistory(uint8_t idx)
 	}
 }
 
-/* Shows one MD (KW or KVA) history sub-screen: value, then time, then date.
- * is_kva selects which billing-profile pair to render; sub selects
- * 0=value,1=time,2=date. hist_idx (1-3) drives the "Hx" tag and the
- * underlying get_bill_data() fetch.
- * IMPORTANT: stBilling_Profile.MD_KW/MD_KVA (and their _DT arrays) are read
- * from *inside* this function, strictly after PB_LoadBillHistory(hist_idx)
- * has refreshed them. Do NOT go back to passing them in as arguments - a
- * caller like PB_ShowMDHistory(2, 0, stBilling_Profile.MD_KW, ...) would
- * evaluate stBilling_Profile.MD_KW at the call site, i.e. BEFORE the
- * refresh below runs, so the first render of a new history screen would
- * show the previous screen's stale value for one tick. */
 static void PB_ShowMDHistory(uint8_t hist_idx, uint8_t sub, uint8_t is_kva)
 {
 	uint16_t md_val;
@@ -558,10 +548,6 @@ static void PB_ShowMDHistory(uint8_t hist_idx, uint8_t sub, uint8_t is_kva)
 	}
 }
 
-/* Push Button Mode: full auto-scrolling sequence, one screen per
- * LCD_PushButton_Parm value (see enum PBDispSeq). TaskAutoScroll() holds
- * each screen for 10 s and stops after LCD_PushButton_Parm reaches
- * PB_TOTAL_SCREENS - i.e. one full cycle - per the display spec. */
 void PushButtonDisplay(void)
 {
 	LCD->MODE_b.on = 0; // make sure the segment-test screen isn't left on
@@ -858,6 +844,7 @@ void PushButtonDisplay(void)
 
 	Put_Data_On_LCD(); // Lcd clear and seg writing is done here
 }
+
 int8_t Display_Complete = 0;
 void PushButtonWakeDisplay(void)
 {
@@ -1042,6 +1029,7 @@ void Display_Version(void)
 	}
 }
 #endif
+
 void Display_Version(void)
 {
 
@@ -1079,11 +1067,7 @@ void CalDisplay(void)
 }
 
 /* ==========================================================================
- * Battery Mode display (on battery-backup power - see pwrmode.h / bat.h).
- * Shorter, low-power screen set with both auto-scrolling and manual
- * (push-button) scrolling, per the display spec:
- *   KWh, KVAh, current-month MD KW/KVA,
- *   previous-month (H1) KWh/KVAh/MD KW/MD KVA/power-on hours.
+ * Battery Mode display
  * ========================================================================== */
 uint8_t BAT_DisplayParm;
 static uint8_t s_bat_sec_ctr;

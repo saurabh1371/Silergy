@@ -1,14 +1,3 @@
-/*****************************************************************************
- * DESCRIPTION: Meter run logic, the main loop.
- *
- * This code and information is provided "as is" without warranty of any
- * kind, either expressed or implied, including but not limited to the
- * implied warranties of merchantability and/or fitness for a particular
- * purpose.
- * Copyright 2012...2020, Silergy Corp. All rights reserved.
- *
- * $Id: meter_1p2w.c 25648 2020-06-10 11:00:29Z phuddar $
- ****************************************************************************/
 #include <string.h>  // C strings and bulk data handling.
 #include "options.h" // Define the IC, CE code and other options.
 #include "afe.h"     // To read the AFE.
@@ -24,7 +13,7 @@
 #include "meter.h"   // Check function prototypes.
 #include "Defines.h"
 #include "asdaq_variables.h"
-// #include "dlms_variables.h"
+
 /*** Version ****/
 const char fw_ver_meter[] =
     "meter" /* Library file name */
@@ -35,36 +24,12 @@ const char fw_ver_meter[] =
 
 Local_ce_data Local_RAM_ce_data;
 
-/* ---------------------------------------------------------------------------
- * KVA demand accumulator + cross-file demand snapshots (added).
- *
- * These mirror the existing KW demand path (global.misc.dmd_cnt/dmd_frac,
- * global.reg.dmd_max) so that KVA MD gets the same full-resolution,
- * floating-point-averaged treatment instead of the coarse load_val[]-pulse
- * calc previously done in asdaq_app.c:store_md_data().
- *
- * ASSUMPTION / TO VERIFY (meter.h was not available when this was written):
- *   - dmd_cnt/dmd_frac's real types, declared in meter.h inside global.misc,
- *     are not visible here. dmd_va_cnt/dmd_va_frac below are declared to
- *     match how they're used with add()/p2f() (same pattern as dmd_cnt/
- *     dmd_frac and vah_cnt/vah_frac) - double check against meter.h and
- *     adjust the types if they don't match, or (better) move these two
- *     fields into global.misc and dmd_va_max into global.reg alongside
- *     their KW counterparts once you can edit meter.h.
- *   - afe_wsum2w() is reused here for the VA sum -> physical-unit
- *     conversion. Confirm this scale factor is valid for VA as well as W;
- *     use an afe_vasum2va()-equivalent instead if the AFE driver has one.
- */
+/* KVA demand accumulator + cross-file demand snapshots*/
 int32_t dmd_va_cnt = 0;
 int32_t dmd_va_frac = 0;
 int32_t g_dmd_va_max = 0;
-
-/* Full-resolution snapshot of THIS period's average demand, refreshed every
- * meter_demand() call (every global.cal.interval minutes). asdaq_app.c's
- * store_md_data() reads these instead of re-deriving demand from load_val[]. */
 int32_t g_dmd_period_kw = 0;
 int32_t g_dmd_period_kva = 0;
-/* --------------------------------------------------------------------- */
 
 // This can handle equation 0 (Wh = VA * IA)
 // and with a standard CE code, equation 1 (Wh = 0.5*V(IA-IB))
@@ -73,7 +38,6 @@ int32_t g_dmd_period_kva = 0;
 #endif
 
 // Internal routines.
-// The following routines have to be synchronized with the data cycle.
 static void meter_demand_reset(void);    // Reset demand.
 static void meter_registers_reset(void); // Reset billing data.
 #if 0
@@ -116,7 +80,7 @@ void meter_start(const ce_t *ce_ptr)
     global.misc.dmd_acc_cnt = 0;
     global.misc.dmd_tm = global.reg.tm; // Store the starting time.
 
-    // KVA demand accumulator - mirrors the KW init above (added).
+    // KVA demand accumulator - mirrors the KW init above.
     dmd_va_cnt = 0;
     dmd_va_frac = 0;
 }
@@ -160,10 +124,10 @@ int meter_run(void)
     nvram_enable();
 
     // clear information before next cycle of the meter.
-    // Reset demand. Invoke: )1=4 (Note: This can change NVRAM.)
+    // Reset demand. (Note: This can change NVRAM.)
     meter_demand_reset();
 
-    // clear reg_data?  Invoke: )1=2
+    // clear reg_data?
     meter_registers_reset(); // (Note: This can change NVRAM.)
 
     // Is new AFE data available?
@@ -212,27 +176,14 @@ void meter_demand(void)
 {
     float dmd, ftmp;
     int32_t dmd_tmp;
-    float dmd_va;       // KVA demand (added)
-    int32_t dmd_va_tmp; // KVA demand (added)
-
-    // Figure accumulated demand.
-    // Whether demand is from Wh
-    // (utilities use this to manage fuel costs,
-    // or because of regulations)
-    // or from VAh
-    // (utilities use this to manage capital costs,
-    // which are determined by wire heating)
-    // is determined by how dmd_cnt and dmd_frac
-    // are added in the main loop.
-    // The demo code uses Wh, which is a bit more
-    // typical.
+    float dmd_va;       // KVA demand
+    int32_t dmd_va_tmp; // KVA demand
 
     // Figure the energy in wsum of CE
     dmd = p2f(&global.misc.dmd_cnt, &global.misc.dmd_frac);
 
     // Find the average energy per accumulation interval
-    // for the demand period. (averaging is right, because
-    // utilities typically use demand to size equipment for heating.)
+    // for the demand period.
     ftmp = (float)global.misc.dmd_acc_cnt;
     dmd /= ftmp;
 
@@ -240,15 +191,12 @@ void meter_demand(void)
     dmd_tmp = afe_wsum2w(lroundf(dmd));
 
     // Is the demand crazy? (e.g., from EMI)
-    // MAX_DEMAND is in options.h
     if (dmd_tmp >= MAX_DEMAND)
     {
         dmd_tmp = MAX_DEMAND;
     }
 
-    // Snapshot of THIS period's average KW demand, full resolution (added).
-    // asdaq_app.c:store_md_data() reads this instead of recomputing demand
-    // from load_val[] pulse deltas.
+    // Snapshot of THIS period's average KW demand, full resolution.
     g_dmd_period_kw = dmd_tmp;
 
     // Find maximum demand interval.
@@ -267,10 +215,8 @@ void meter_demand(void)
     global.misc.dmd_cnt = 0;
     global.misc.dmd_frac = 0;
 
-    /* --- KVA demand (added) ---
-     * Same technique as KW above: full-precision average over the period,
-     * using the same accumulation-interval count (ftmp) since both W and
-     * VA sums were accumulated over the identical set of AFE cycles. */
+    /* --- KVA demand---
+     * Same technique as KW above*/
     dmd_va = p2f(&dmd_va_cnt, &dmd_va_frac);
     dmd_va /= ftmp;
     dmd_va_tmp = afe_wsum2w(lroundf(dmd_va));
@@ -311,20 +257,18 @@ void meter_demand(void)
 static void meter_demand_reset(void)
 {
     // clear information before next cycle of the meter.
-    // Reset demand. Invoke: )1=4
+    // Reset demand.
     if (global.cal.cfg & RESET_DEMAND)
     {
         global.cal.cfg &= ~RESET_DEMAND;
 
         // Clears only the working copy.
-        // This will propagate as needed.
-        // It's not really safe to clear it in all register sets.
         global.reg.dmd_mon = 0;
         global.reg.dmd_mday = 1;
         global.reg.dmd_hour = 0;
         global.reg.dmd_min = 0;
         global.reg.dmd_max = 0;
-        g_dmd_va_max = 0; // KVA demand reset (added) - mirrors dmd_max above
+        g_dmd_va_max = 0; // KVA demand reset- mirrors dmd_max above
     }
 }
 
@@ -342,7 +286,7 @@ static void meter_demand_reset(void)
  ***************************************************************************/
 static void meter_registers_reset(void)
 {
-    // clear reg_data?  Invoke: )1=2
+    // clear reg_data?
     if (global.cal.cfg & CLEAR_REG)
     {
         global.cal.cfg &= ~CLEAR_REG;
@@ -352,8 +296,6 @@ static void meter_registers_reset(void)
         reg_reset();
 
 // Clear pulse counters in CE data.
-// (This is needed if they are used to count meter
-// billing.)
 #ifdef WSUM_ACCUM
         afe_set_wh_pulse_cnt(0);
 #endif
@@ -393,7 +335,7 @@ void meter_compensate_afe(void)
 
     // Read the temperature, or set it for a software test.
     if (global.cal.cfg & MANUAL_TEMP)
-    { // cli enable: )1=20
+    { // cli enable:
         // Simulate temperature sensor: )33=270 = 27.0C
         float temp_f = ((float)global.misc.temp_c) / 10.0f;
         stemp = (int16_t)lroundf(COMPUTE_STEMP(temp_f));
