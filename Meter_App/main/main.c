@@ -770,8 +770,8 @@ int main(void)
 				{
 					afe_disable();
 					meter_save_data(); // Save the meter data.
-									   /* Save exact minute of power down exactly once */
-					to_eeprom(LAST_POWER_DOWN_TIME_LOC, utc(0, 0), 4);
+									   /* Save exact second of power down exactly once */
+					to_eeprom(LAST_POWER_DOWN_TIME_LOC, (utc(0, 0) * 60) + t_sec, 4);
 				}
 
 				while (1)

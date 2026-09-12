@@ -3471,31 +3471,46 @@ void store_event_data(unsigned char event_type, unsigned int event_id, unsigned 
 
 void power_fail_func(void)
 {
-  unsigned long int tmp_long;
-  unsigned int tmp_int;
   unsigned char i, j;
+  unsigned long int pd_utc;
+  unsigned char pd_sec, pd_min, pd_hr, pd_day, pd_mnth, pd_yr;
+  unsigned long int pd_real_date, pd_real_time;
 
-  // Calculate time difference between current RTC and last saved EEPROM time
-  tmp_long = from_eeprom(DATE_LOC, 3);
+  // Read exact power down timestamp packed in LAST_POWER_DOWN_TIME_LOC
+  pd_utc = from_eeprom(LAST_POWER_DOWN_TIME_LOC, 4);
 
-  tmp_int = tmp_long % 100;
-  scratch = tmp_int; // yr
-  tmp_int = (tmp_long / 100) % 100;
+  // Exit gracefully if no valid power down time exists (e.g., first boot)
+  if (pd_utc == 0 || pd_utc == 0xFFFFFFFF)
+  {
+    to_eeprom(TIME_LOC, real_time, 3);
+    return;
+  }
+
+  // Reverse the packing logic to extract the exact components including seconds
+  pd_sec = pd_utc % 60;
+  pd_utc /= 60;
+  pd_min = pd_utc % 60;
+  pd_utc /= 60;
+  pd_hr = pd_utc % 24;
+  pd_utc /= 24;
+  pd_day = pd_utc % 32;
+  pd_utc /= 32;
+  pd_mnth = pd_utc % 13;
+  pd_yr = pd_utc / 13;
+
+  // Calculate power down absolute minutes
+  scratch = pd_yr;
   scratch = (scratch * 365);
-  for (i = 1; i < tmp_int; i++)
+  for (i = 1; i < pd_mnth; i++)
   {
     j = days_in_month(i - 1);
     scratch = scratch + j;
   }
-  tmp_int = (tmp_long / 10000);
-  scratch = scratch + tmp_int;
+  scratch = scratch + pd_day;
+  scratch = (scratch * 24) + pd_hr;
+  scratch = (scratch * 60) + pd_min;
 
-  tmp_long = from_eeprom(TIME_LOC, 3);
-  tmp_int = (tmp_long / 10000);
-  scratch = (scratch * 24) + tmp_int; // hr
-  tmp_int = (tmp_long / 100) % 100;
-  scratch = (scratch * 60) + tmp_int; // min
-
+  // Calculate current power up absolute minutes
   scratch1 = d_yr;
   scratch1 = (scratch1 * 365);
   for (i = 1; i < d_mnth; i++)
@@ -3503,11 +3518,11 @@ void power_fail_func(void)
     j = days_in_month(i - 1);
     scratch1 = scratch1 + j;
   }
-
   scratch1 = scratch1 + d_day;
   scratch1 = (scratch1 * 24) + t_hr;
   scratch1 = (scratch1 * 60) + t_min;
 
+  // Determine true outage duration
   if (scratch1 > scratch)
     scratch1 = scratch1 - scratch;
   else
@@ -3515,8 +3530,16 @@ void power_fail_func(void)
 
   if (scratch1 >= PF_LOG_MIN_DURATION_MIN)
   {
-    store_event_data(PFAIL_EVENT, 101, 0); // Log occurrence (uses DATE_LOC/TIME_LOC internally)
-    store_event_data(PFAIL_EVENT, 102, 1); // Log restoration (uses current real_time)
+    // Reconstruct real_date (DDMMYY) and real_time (HHMMSS)
+    pd_real_date = ((unsigned long)pd_day * 10000) + ((unsigned long)pd_mnth * 100) + pd_yr;
+    pd_real_time = ((unsigned long)pd_hr * 10000) + ((unsigned long)pd_min * 100) + pd_sec;
+
+    // Briefly inject the true power down time so store_event_data reads it accurately for 101
+    to_eeprom(DATE_LOC, pd_real_date, 3);
+    to_eeprom(TIME_LOC, pd_real_time, 3);
+
+    store_event_data(PFAIL_EVENT, 101, 0); // Log exact occurrence
+    store_event_data(PFAIL_EVENT, 102, 1); // Log restoration (uses current real_time automatically)
 
     Cum_Power_Off_Count = Cum_Power_Off_Count + 1;
     Cum_Power_Off_Dur = Cum_Power_Off_Dur + scratch1;
@@ -3525,6 +3548,8 @@ void power_fail_func(void)
     to_eeprom(POFF_DUR_LOC, Cum_Power_Off_Dur, 4);
   }
 
+  // Clear the power down flag to prevent duplicate logging on warm resets (e.g. Watchdog)
+  to_eeprom(LAST_POWER_DOWN_TIME_LOC, 0, 4);
   to_eeprom(TIME_LOC, real_time, 3);
 }
 

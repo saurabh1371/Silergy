@@ -292,47 +292,33 @@ static void Read_ConfigChangeCount(unsigned char attr, unsigned int *apdu_len) /
 static void Read_EventCode_Common(unsigned int *apdu_len, unsigned char target_evt)
 {
     unsigned int latest_ev_code = 0;
-    unsigned int h_idx;
-    unsigned int l_loc;
+    unsigned char actual_type = 0xFF;
 
+    /* 1. Map DLMS target definitions to actual core internal event types */
     if (target_evt == 100)
-    {
-        h_idx = (config_event_pos == 0) ? (CONFIG_EVENT_SIZE - 1) : (config_event_pos - 1);
-        l_loc = CONFIG_EVENT_LOC + (h_idx * 26);
-        if (read_eeprom(l_loc + 1) != 0 && read_eeprom(l_loc + 1) != 0xFF)
-        {
-            latest_ev_code = (read_eeprom(l_loc) << 8) | read_eeprom(l_loc + 1);
-        }
-    }
+        actual_type = TRANSACT_EVENT; // Type 3
     else if (target_evt == 200)
-    {
-        h_idx = (dlms_pfail_event_pos == 0) ? (DLMS_PFAIL_EVENT_SIZE - 1) : (dlms_pfail_event_pos - 1);
-        l_loc = DLMS_PFAIL_EVENT_LOC + (h_idx * 6);
-        if (read_eeprom(l_loc + 1) != 0 && read_eeprom(l_loc + 1) != 0xFF)
-        {
-            latest_ev_code = (read_eeprom(l_loc) << 8) | read_eeprom(l_loc + 1);
-        }
-    }
-    else if (target_evt < TAMPER_TYPE)
-    {
-        if ((store_tamper_stat & (1 << target_evt)) != 0)
-        {
-            latest_ev_code = get_is15959_event_code(target_evt, 0);
-        }
-        else
-        {
-            h_idx = (tamper_pos[target_evt] == 0) ? (TAMPER_SIZE - 1) : (tamper_pos[target_evt] - 1);
-            l_loc = TAMPER_LOC + (target_evt * 520) + (h_idx * 26);
-            if (from_eeprom(l_loc + 1, 4) != 0)
-            {
-                latest_ev_code = (from_eeprom(l_loc + 14, 4) != 0)
-                                     ? get_is15959_event_code(target_evt, 1)
-                                     : get_is15959_event_code(target_evt, 0);
-            }
-        }
-    }
-    /* target_evt == 99 (unmapped slots 2 and 6): falls through, reports 0 - matches original */
+        actual_type = PFAIL_EVENT; // Type 2
+    else if (target_evt == 99)
+        actual_type = 0xFF; // Unmapped, falls through to return 0
+    else
+        actual_type = target_evt; // Maps 0, 1, 4, 5 (Volt, Amp, Others, Non-roll)
 
+    /* 2. Safely read the newest event using the core application's API */
+    if (actual_type != 0xFF && actual_type < TOT_EVENT_TYPE)
+    {
+        /* Only attempt to read if at least one event of this type has been logged */
+        if (event_cnt[actual_type] > 0)
+        {
+            /* Index 1 fetches the newest/latest event logged in the circular buffer */
+            get_tamper_data(actual_type, 1);
+
+            /* stTamper_Profile is populated with the exact ID (e.g., 101, 201, 69) */
+            latest_ev_code = stTamper_Profile.Tamper_ID;
+        }
+    }
+
+    /* 3. Inject the Uint16 event code into the APDU payload */
     dlms_apdu_buf[(*apdu_len)++] = 0x12;
     dlms_apdu_buf[(*apdu_len)++] = (latest_ev_code >> 8) & 0xFF;
     dlms_apdu_buf[(*apdu_len)++] = latest_ev_code & 0xFF;
@@ -1744,28 +1730,6 @@ static unsigned char Write_Profile_Capture_Period(unsigned char attr, unsigned c
         return DLMS_RESULT_TYPE_UNMATCHED;
     }
     return DLMS_RESULT_OBJECT_UNDEFINED;
-}
-
-/* =========================================================
- * POWER FAILURE EVENT LOGGER
- * Writes 101 (Occurrence) and 102 (Restoration)
- * ========================================================= */
-void log_power_event(unsigned int ev_code, unsigned long dt_stamp)
-{
-    unsigned int loc;
-
-    loc = DLMS_PFAIL_EVENT_LOC + (dlms_pfail_event_pos * 6);
-
-    write_eeprom(loc, (ev_code >> 8) & 0xFF);
-    write_eeprom(loc + 1, ev_code & 0xFF);
-    to_eeprom(loc + 2, dt_stamp, 4);
-
-    dlms_pfail_event_pos++;
-    if (dlms_pfail_event_pos >= DLMS_PFAIL_EVENT_SIZE)
-    {
-        dlms_pfail_event_pos = 0;
-    }
-    to_eeprom(DLMS_PFAIL_EVENT_POS_LOC, dlms_pfail_event_pos, 2);
 }
 
 /* =========================================================
