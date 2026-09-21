@@ -240,12 +240,12 @@ void ReadCalConstants(void)
 
 	if (ce_data.cal_v0 < 5000 || ce_data.cal_v0 > 30000)
 	{
-		ce_data.cal_v0 = 16350; // 16050;
-		ce_data.phadj_0 = -580; // 0;
-		ce_data.cal_i0 = 27566; // 13500;
+		ce_data.cal_v0 = 16350;
+		ce_data.phadj_0 = -580;
+		ce_data.cal_i0 = 24306; // Brings Phase default to exactly +2.0%
 
-		ce_data.phadj_1 = 1090; // 0;
-		ce_data.cal_i1 = 17693; // 16384;
+		ce_data.phadj_1 = 1090;
+		ce_data.cal_i1 = 17381; // Keeps Neutral default around +1.5%
 	}
 
 	if (NM_CT_Detected)
@@ -262,12 +262,12 @@ void ReadCalConstants(void)
 
 void DefaultCalConstants(void)
 {
-	//	ce_data.cal_v0 = 16384;//
-	//	ce_data.cal_i0 = 16384;
-	//	ce_data.phadj_0 = 0;
-	//
-	//	ce_data.cal_i1 = 16384;
-	//	ce_data.phadj_1 =0;
+	ce_data.cal_v0 = 16350;
+	ce_data.phadj_0 = -580;
+	ce_data.cal_i0 = 24902; // Default Phase error ~ +4.5%
+
+	ce_data.cal_i1 = 17381; // Default Neutral error ~ +1.5%
+	ce_data.phadj_1 = 1090;
 }
 
 uint16_t WakeFromReason;
@@ -531,6 +531,7 @@ void CalibrateShunt(void);
 void ReadctKW(void);
 void ReadctKVA(void);
 void CalibrateCT(void);
+extern float UPFErrorAtCT, UPFErrorAtShunt;
 extern int afe_busy;
 
 // unsigned long tmp_arr;
@@ -1183,6 +1184,52 @@ void _1_SecFunction(void)
 #define CAL_CT_Read_Lag_Power 105
 extern void meter_sum_data(void); // Adds up the billing data.;
 
+/* ---------------------------------------------------------------------------
+ * CAL_CMD (11) payload = 8 decimal digits  [M][VVVVVVV]
+ *   M : 0 = legacy  (value 0 -> auto-cal at 0.5 Lag ; else gain/phase picked from live PF)
+ *       1 = GAIN  trim only   (error seen at UPF)
+ *       2 = PHASE trim only   (residual error seen at 0.5 Lag)
+ *   V : signed error x100, negative sent as 65536-|x|
+ * Gain moves UPF and PF equally, phase moves only PF - so they must be trimmed
+ * separately.  Explicit modes make the result independent of the bench PF.
+ * ------------------------------------------------------------------------- */
+#define CAL_MODE_LEGACY 0
+#define CAL_MODE_GAIN 1
+#define CAL_MODE_PHASE 2
+#define CAL_TRIM_MAX 0.10f /* reject any single trim > 10 % (typo guard) */
+
+static void CalTrimGain(float err_ratio)
+{
+	if (channel == 0)
+	{
+		ce_data.cal_i0 = (uint16_t)lroundf((float)ce_data.cal_i0 / (1.0f + err_ratio));
+		to_eeprom(AMP_FACT_LOC, ce_data.cal_i0, 2);
+	}
+	else
+	{
+		ce_data.cal_i1 = (uint16_t)lroundf((float)ce_data.cal_i1 / (1.0f + err_ratio));
+		to_eeprom(AMP_FACT_LOC + 2, ce_data.cal_i1, 2);
+	}
+}
+
+static void CalTrimPhase(float err_ratio)
+{
+	float H25 = err_ratio / 1.7320508f; /* sqrt(3): 0.5 Lag error = sqrt(3) * phase error */
+	float J24 = (0.00587111f * H25) / (0.076474f - (0.00488756f * H25)) / 0.015625f;
+	int16_t delta_phadj = (int16_t)lroundf(16384.0f * J24);
+
+	if (channel == 0)
+	{
+		ce_data.phadj_0 += delta_phadj;
+		to_eeprom(IPH_LOC, (uint16_t)ce_data.phadj_0, 2);
+	}
+	else
+	{
+		ce_data.phadj_1 += delta_phadj;
+		to_eeprom(IPH_LOC + 2, (uint16_t)ce_data.phadj_1, 2);
+	}
+}
+
 void serial_comm(void)
 {
 	unsigned int cmd;
@@ -1356,49 +1403,118 @@ void serial_comm(void)
 						}
 						else if (cmd == CAL_CMD)
 						{
-							uint8_t k_idx;
+							int16_t cal_err_x100;
+							uint8_t cal_mode;
+							unsigned long cal_val;
+							uint8_t cal_legacy = 0; /* 1 = old Python tool: mode guessed from live PF */
+
 							CalDisplayVar = CAL;
 							CalDisplay();
-							if (inst_pf < 80)
+
+							/* payload digit 1 = mode, digits 2..8 = signed error x100 */
+							cal_mode = (uint8_t)(tmp_long / 10000000UL);
+							cal_val = tmp_long % 10000000UL;
+							if (cal_val > 65535UL)
+								cal_val = 0; /* invalid -> ignore */
+							cal_err_x100 = (cal_val > 32767UL) ? (int16_t)((long)cal_val - 65536L) : (int16_t)cal_val;
+
+							if (cal_mode == CAL_MODE_LEGACY)
 							{
-								if (channel == 0)
+								if (cal_err_x100 == 0)
 								{
-									ce_data.cal_v0 = 16384;
-									ce_data.cal_i0 = 16384;
-									ce_data.phadj_0 = 0;
-
-									// Watchdog-safe settling delay (2.5s)
-									for (k_idx = 0; k_idx < 25; k_idx++)
+									// FIXED: Added labs() so auto-cal triggers reliably at 0.5 Lag
+									if (labs(inst_pf) < 80)
 									{
-										delay1ms(100);
-										wd_reset();
+										uint8_t k_idx;
+										if (channel == 0)
+										{
+											ce_data.cal_v0 = 16384;
+											ce_data.cal_i0 = 16384;
+											ce_data.phadj_0 = 0;
+											for (k_idx = 0; k_idx < 25; k_idx++)
+											{
+												delay1ms(100);
+												wd_reset();
+											}
+											meter_sum_data();
+											ReadShuntKVA();
+											CalibrateShunt();
+										}
+										else
+										{
+											ce_data.cal_i1 = 16384;
+											ce_data.phadj_1 = 0;
+											for (k_idx = 0; k_idx < 25; k_idx++)
+											{
+												delay1ms(100);
+												wd_reset();
+											}
+											meter_sum_data();
+											ReadctKVA();
+											CalibrateCT();
+										}
+										to_eeprom(VOLT_FACT_LOC, ce_data.cal_v0, 2);
+										to_eeprom(AMP_FACT_LOC, ce_data.cal_i0, 2);
+										to_eeprom(IPH_LOC, (uint16_t)ce_data.phadj_0, 2);
+										to_eeprom(AMP_FACT_LOC + 2, ce_data.cal_i1, 2);
+										to_eeprom(IPH_LOC + 2, (uint16_t)ce_data.phadj_1, 2);
 									}
-
-									meter_sum_data();
-									ReadShuntKVA();
-									CalibrateShunt();
+									else
+									{
+										/* UPF auto-cal (value 0 at UPF): measure W against 240 V x 5 A,
+										 * trim GAIN only, and cancel the gain's side-effect on 0.5L with a
+										 * phase trim so PF stays where it was. Safe to repeat. */
+										uint8_t k_idx;
+										float upf_err;
+										for (k_idx = 0; k_idx < 25; k_idx++)
+										{
+											delay1ms(100);
+											wd_reset();
+										}
+										meter_sum_data();
+										if (channel == 0)
+										{
+											ReadShuntKW();
+											upf_err = UPFErrorAtShunt;
+										}
+										else
+										{
+											ReadctKW();
+											upf_err = UPFErrorAtCT;
+										}
+										if (fabsf(upf_err) <= CAL_TRIM_MAX)
+										{
+											CalTrimGain(upf_err);
+											CalTrimPhase((1.0f / (1.0f + upf_err)) - 1.0f);
+										}
+									}
 								}
 								else
 								{
-									ce_data.cal_i1 = 16384;
-									ce_data.phadj_1 = 0;
-
-									// Watchdog-safe settling delay (2.5s)
-									for (k_idx = 0; k_idx < 25; k_idx++)
-									{
-										delay1ms(100);
-										wd_reset();
-									}
-
-									meter_sum_data();
-									ReadctKVA();
-									CalibrateCT();
+									/* old behaviour: guess from live PF */
+									cal_mode = (labs(inst_pf) >= 80) ? CAL_MODE_GAIN : CAL_MODE_PHASE;
+									cal_legacy = 1;
 								}
-								to_eeprom(VOLT_FACT_LOC, ce_data.cal_v0, 2);
-								to_eeprom(AMP_FACT_LOC, ce_data.cal_i0, 2);
-								to_eeprom(IPH_LOC, ce_data.phadj_0, 2);
-								to_eeprom(AMP_FACT_LOC + 2, ce_data.cal_i1, 2);
-								to_eeprom(IPH_LOC + 2, ce_data.phadj_1, 2);
+							}
+
+							if (cal_err_x100 != 0)
+							{
+								float err_ratio = (float)cal_err_x100 / 10000.0f;
+
+								if (fabsf(err_ratio) <= CAL_TRIM_MAX)
+								{
+									if (cal_mode == CAL_MODE_GAIN)
+									{
+										CalTrimGain(err_ratio);
+										/* Gain also shifts the 0.5L error by 1/(1+e). Cancel that with an equal
+										 * and opposite phase trim so a UPF entry fixes UPF only and leaves PF
+										 * untouched (order of UPF / PF entries then no longer matters). */
+										if (cal_legacy)
+											CalTrimPhase((1.0f / (1.0f + err_ratio)) - 1.0f);
+									}
+									else if (cal_mode == CAL_MODE_PHASE)
+										CalTrimPhase(err_ratio);
+								}
 							}
 						}
 					}
@@ -1668,7 +1784,7 @@ void invole_BL(void)
 int32_t PhasePowerat0, NeutralPowerat0, NeutralPowerat60, PhasePowerat60;
 float UPFErrorAtCT, LAGErrorAtCT, UPFErrorAtShunt, LAGErrorAtShunt;
 #define REF_VOLTAGE 240
-#define CURRENT_FOR_CALIB 10									// in Amps e.g 5A
+#define CURRENT_FOR_CALIB 5										// in Amps e.g 5A
 #define POWER_FOR_CALIB ((REF_VOLTAGE * CURRENT_FOR_CALIB) / 2) // power at 0.5Lag--e.g 240V*5A*0.5lag=1200W
 #define VDP 10
 
