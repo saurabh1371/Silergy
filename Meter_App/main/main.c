@@ -303,121 +303,119 @@ void Sleep(void)
 	}
 }
 
+#define BAT_NVRAM_ADR (PCB_NVRAM_ADR_NVM + sizeof(Nvm_t))
+
+// bit7 = display session active, bits0-6 = current screen
+static void BatSaveParm(uint8_t active)
+{
+	uint8_t v = active ? (0x80 | (BAT_DisplayParm & 0x7F)) : 0;
+	nvram_enable();
+	nvram_write(BAT_NVRAM_ADR, &v, 1);
+	nvram_disable();
+}
+
+// active=1: hold screen in LCD-only mode, timer wake in 8 s to advance
+// active=0: true sleep
+static void BatEnterLowPower(uint8_t active)
+{
+	WakeFromPushButtonFlag = active; // makes SetWakeSources() arm the 8 s timer
+	SetWakeSources();
+	eeprom_vcc_enable(false);
+
+	while (true)
+	{
+		if (!(SYS->STAT_b.v3a_nok)) // mains returned: reset
+		{
+			SYS->MOD_CNTL |= BIT31;
+			while (1)
+				;
+		}
+		SYS->MOD_CNTL = active ? 3 : 1;
+		delay(DELAY_MS(1));
+	}
+}
+
+static void BatTimerAdvance(void)
+{
+	uint8_t v = 0;
+	nvram_read(&v, 1, BAT_NVRAM_ADR);
+
+	if (!(v & 0x80)) // no active session: just sleep
+	{
+		lcd_clear();
+		BatSaveParm(0);
+		BatEnterLowPower(0);
+	}
+
+	BAT_DisplayParm = v & 0x7F;
+	sys_set_mpuclk(3, 0);
+	rtc_read(&global.reg.tm);
+	eeprom_vcc_enable(true);
+	PushButton_init_eeprom();
+	lcd_init_no_clear();
+	BatteryModeManualNext(); // next screen
+
+	if (BAT_DisplayParm == 0) // wrapped: sequence finished
+	{
+		lcd_clear();
+		BatSaveParm(0);
+		BatEnterLowPower(0);
+	}
+
+	BatSaveParm(1);
+	BatEnterLowPower(1);
+}
+
 uint32_t NVRAM_Push_Buton_Disp; // Kept for legacy PushButtonCommMode use
 
 void WakePushButtonFunction(void)
 {
 	uint32_t i, j;
-	uint32_t sleep_timeout;
+	uint8_t v = 0;
 
-	// 1. Boost CPU clock to 851 kHz for instant response
 	sys_set_mpuclk(3, 0);
 
-	// 2. Force the display to ALWAYS start at KWh (Index 0).
-	BAT_DisplayParm = 0xFF;
+	// Continue an active session, else start from KWh
+	nvram_read(&v, 1, BAT_NVRAM_ADR);
+	BAT_DisplayParm = (v & 0x80) ? (v & 0x7F) : 0xFF;
 
 	rtc_read(&global.reg.tm);
 	eeprom_vcc_enable(true);
 	PushButton_init_eeprom();
 	lcd_init_no_clear();
-
-	// 3. Render the very first screen (KWh) instantly
 	BatteryModeManualNext();
 
-	while (1)
+	// Wait for release; 5 s hold = Communication Mode
+	j = 0;
+	gpio_dir_in(PCB_BUTTON_SEG);
+	while (gpio_get_state(PCB_BUTTON_SEG))
 	{
-		// 4. Wait for the user to RELEASE the button (if held)
-		j = 0;
-		gpio_dir_in(PCB_BUTTON_SEG);
-		while (gpio_get_state(PCB_BUTTON_SEG))
+		if (!(SYS->STAT_b.v3a_nok))
 		{
-			// Mains came back while we were showing the battery-mode display:
-			// force a controlled reset so main() re-runs with WAKE_FROM_MAINS
-			if (!(SYS->STAT_b.v3a_nok))
-			{
-				SYS->MOD_CNTL |= BIT31;
-				while (1)
-					;
-			}
-
-			for (i = 0; i < 1000; i++)
-			{
-			}
-			wd_reset();
-			j++;
-
-			// 5-second hold triggers Communication Mode (500 loops at 851 kHz)
-			if (j > 500)
-			{
-				PushButtonCommMode = 1;
-
-				// Blank screen, show "Conn", and hold it for 2 seconds to be readable
-				lcd_clear();
-				lcd_put_flash_str(1, "Conn");
-				Put_Data_On_LCD();
-
-				return;
-			}
+			SYS->MOD_CNTL |= BIT31;
+			while (1)
+				;
 		}
 
-		// 5. Button released! Wait for a manual press OR a 10s auto-scroll timeout
-		sleep_timeout = 0;
-		while (!gpio_get_state(PCB_BUTTON_SEG))
+		for (i = 0; i < 1000; i++)
 		{
-			// Same mains-return check while waiting for the next press/timeout.
-			if (!(SYS->STAT_b.v3a_nok))
-			{
-				SYS->MOD_CNTL |= BIT31;
-				while (1)
-					;
-			}
-
-			for (i = 0; i < 1000; i++)
-			{
-			}
-			wd_reset();
-			sleep_timeout++;
-
-			// 10 seconds elapsed -> Auto-Advance to next parameter (1000 loops)
-			if (sleep_timeout > 1000)
-			{
-				BatteryModeManualNext();
-
-				// If it wrapped back around to 0 (KWh), we have shown the last screen.
-				if (BAT_DisplayParm == 0)
-				{
-					lcd_clear(); // Turn off the LCD explicitly to avoid freezing on KWh
-					SetWakeSources();
-					while (true)
-					{
-						// If mains has returned by the time we reach the sleep trap,
-						// reset instead of looping the sleep instruction forever.
-						if (!(SYS->STAT_b.v3a_nok))
-						{
-							SYS->MOD_CNTL |= BIT31;
-							while (1)
-								;
-						}
-
-						SYS->MOD_CNTL = 3; // Sleep
-						delay(DELAY_MS(1));
-					}
-				}
-
-				// Reset the timeout to hold the newly auto-scrolled screen for 10s
-				sleep_timeout = 0;
-			}
 		}
+		wd_reset();
+		j++;
 
-		// 6. If we reach here, the user manually PRESSED the button again!
-		for (i = 0; i < 500; i++)
+		if (j > 500)
 		{
-			wd_reset();
-		} // Hardware debounce (shortened - was 5000, felt sluggish)
-
-		// Advance the screen manually and loop back to wait for release
-		BatteryModeManualNext();
+			PushButtonCommMode = 1;
+			lcd_clear();
+			lcd_put_flash_str(1, "Conn");
+			Put_Data_On_LCD();
+			return;
+		}
 	}
+
+	// Hold this screen in LCD-only mode; timer wake advances it
+	BatSaveParm(1);
+	BatEnterLowPower(1);
 }
 
 uint8_t PushButtonCommMode = 0;
@@ -437,14 +435,7 @@ void CheckWakeSource(void)
 	}
 	else if (SYS->WAKE_SRC_b.ws_tmr)
 	{
-		WakeFromPushButtonFlag = 0; // donot set timer wake again
-		BAT_DisplayParm = 0;		// reset battery display parameter
-
-		nvram_enable();
-		nvram_write(PCB_NVRAM_ADR_NVM + sizeof(Nvm_t), (uint8_t *)&BAT_DisplayParm, 1);
-		nvram_disable();
-		SetWakeSources();
-		Sleep();
+		BatTimerAdvance();
 	}
 	else
 		WakeFromReason = WAKE_FROM_UNKOWN;
@@ -460,7 +451,11 @@ void SetWakeSources(void)
 	if (WakeFromPushButtonFlag)
 	{
 		SYS->WAKE_b.ew_tmr = 1;
-		SYS->WAKE_b.wake_tmr = 8 * 8; // 0.125*8*8(Seconds required)
+		SYS->WAKE_b.wake_tmr = 8 * 8;
+	}
+	else
+	{
+		SYS->WAKE_b.ew_tmr = 0;
 	}
 
 	SYS->PWR_MOD_b.brn_en = 1; // Enable battery modes by default.//Push Button Wake
